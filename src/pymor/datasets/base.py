@@ -147,21 +147,41 @@ class Dataset(ImmutableObject):
 
     def with_entries(self, entries):
         """
-        Return a new Dataset with one or more entries appended.
+        Return a new Dataset with additional entries appended.
 
         Parameters
         ----------
-        entries : dict or list of dict
-            One or more new data entries, each with keys 'parameters', 'solution', and 'output'.
+        entries : dict, list of dict, Dataset, or tuple of (parameters, solutions, outputs)
+            Data to append to the current dataset. Accepts:
+              - A single entry (dict with 'parameters', 'solution', 'output'),
+              - A list of such entries,
+              - Another Dataset instance (its entries will be appended),
+              - A tuple of (parameters, solutions, outputs) to be passed to from_components.
 
         Returns
         -------
         Dataset
-            A new Dataset instance with the added entry or entries.
+            A new Dataset instance with the added entries.
         """
-        if isinstance(entries, dict):
-            entries = [entries]
-        return Dataset(list(self.entries) + entries)
+        if isinstance(entries, Dataset):
+            entries_to_add = entries.entries
+
+        elif isinstance(entries, dict):
+            entries_to_add = [entries]
+
+        elif isinstance(entries, list) and all(isinstance(e, dict) for e in entries):
+            entries_to_add = entries
+
+        elif isinstance(entries, tuple) and len(entries) == 3:
+            # Assume it's (parameters, solutions, outputs)
+            new_dataset = Dataset.from_components(*entries)
+            entries_to_add = new_dataset.entries
+
+        else:
+            raise ValueError(
+                "Unsupported input for with_entries: must be Dataset, dict, list of dict, or (parameters, solutions, outputs)")
+
+        return Dataset(list(self.entries) + list(entries_to_add))
 
     def filter(self, assertion):
         """
