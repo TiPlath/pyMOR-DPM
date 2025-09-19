@@ -14,7 +14,7 @@ import matplotlib.colors as colors
 import matplotlib.gridspec as gridspec
 
 import pickle
-
+from dataclasses import dataclass
 import scienceplots
 
 plt.style.use(['science', 'ieee', 'no-latex'])
@@ -27,6 +27,29 @@ plt.rcParams.update({'figure.dpi': 300, 'font.size': 10})
 # 5. apply POD to the numpy vector array.
 # 6. get the reduced basis. Take the same basis for the testing dataset. Take the inner product of the testing data with the reduced POD basis (modes)
 
+@dataclass
+class FieldData:
+    field_data: np.ndarray
+    parameters: np.ndarray
+    train_data: np.ndarray = None
+    val_data: np.ndarray = None
+    test_data: np.ndarray = None
+    train_params: np.ndarray = None
+    val_params: np.ndarray = None
+    test_params: np.ndarray = None
+
+    def split_data(self, test_size=0.1, val_size=0.1, random_state=42):
+        from sklearn.model_selection import train_test_split
+        n = self.field_data.shape[0]
+        indices = np.arange(n)
+
+        train_val_idx, test_idx = train_test_split(indices, test_size=test_size, random_state=random_state)
+        train_idx, val_idx = train_test_split(train_val_idx, test_size=val_size/(1-test_size), random_state=random_state)
+
+        self.train_data, self.val_data, self.test_data = \
+            self.field_data[train_idx], self.field_data[val_idx], self.field_data[test_idx]
+        self.train_params, self.val_params, self.test_params = \
+            self.parameters[train_idx], self.parameters[val_idx], self.parameters[test_idx]
 
 def plot_full_POD_mode_selection(x, z, Phi, l2_err_epsilon=3e-3):
     # POD relative mean l2 error. relative to the bulk volume fraction magnitude:
@@ -72,8 +95,9 @@ def plot_full_POD_mode_selection(x, z, Phi, l2_err_epsilon=3e-3):
     npModes = modes.to_numpy()
     npModes = npModes.T.reshape((len(modes), x.shape[0], z.shape[0]))
 
-    fig, axs = plt.subplots(2, 2, sharex=True, sharey=True)
+    # Plot the first four modes in a single figure
     # normalise to [-1,1] to keep the negative and positive contributions to the field intact
+    fig, axs = plt.subplots(2, 2, sharex=True, sharey=True)
     vmin = -1
     vmax = 1
     npModes_norm = npModes[:4] / np.max(np.abs(npModes[:4]), axis=(1, 2), keepdims=True)
@@ -83,25 +107,20 @@ def plot_full_POD_mode_selection(x, z, Phi, l2_err_epsilon=3e-3):
                               cmap='seismic', levels=100, vmin=vmin, vmax=vmax)
         contours.append(contour)
         ax.set_title(f'Mode {i + 1}')
-    # contour0 = axs[0, 0].contourf(x[:,:,-1], z[:,:,-1], npModes[0,:,:], cmap='viridis', levels=10)
-    # fig.colorbar(contour0, ax=axs[0, 0], format='%1.2f',ticks=np.linspace(np.min(npModes[0,:,:]),np.max(npModes[0,:,:]),5))
-    # contour1 = axs[0, 1].contourf(x[:,:,-1], z[:,:,-1], npModes[1,:,:], cmap='viridis', levels=10)
-    # fig.colorbar(contour1, ax=axs[0, 1], label=r'$\Phi^{\mathrm{s}}$ [-]', format='%1.2f', ticks=np.linspace(np.min(npModes[1,:,:]),np.max(npModes[1,:,:]),5))
-    # contour2 = axs[1, 0].contourf(x[:,:,-1], z[:,:,-1], npModes[2,:,:], cmap='viridis', levels=10)
-    # fig.colorbar(contour2, ax=axs[1, 0], format='%1.2f', ticks=np.linspace(np.min(npModes[2,:,:]),np.max(npModes[2,:,:]),5))
-    # contour3 = axs[1, 1].contourf(x[:,:,-1], z[:,:,-1], npModes[3,:,:], cmap='viridis', levels=10)
-    # fig.colorbar(contour3, ax=axs[1, 1], label=r'$\Phi^{\mathrm{s}}$ [-]', format='%1.2f', ticks=np.linspace(np.min(npModes[3,:,:]),np.max(npModes[3,:,:]),5))
+
+    # create a continuous colorbar with a diverging colormap to see positive and negative contributions of the modes
     sm = cm.ScalarMappable(cmap='seismic', norm=plt.Normalize(vmin=vmin, vmax=vmax))
     sm.set_array([])  # required for colorbar
     cbar = fig.colorbar(sm, ax=axs, orientation='vertical',
                         format='%1.2f', ticks=np.linspace(vmin, vmax, 5))
     cbar.set_label(r'$\mathit{\Phi}^{\mathrm{s}\prime}$ [-]')
 
+    # place text manually
     fig.text(0.42, 0.03, '$x$ [m]', ha='center', va='center')
     fig.text(0.03, 0.5, '$y$ [m]', ha='center', va='center', rotation='vertical')
 
+    # adjust plot size to make the text fit
     fig.subplots_adjust(hspace=0.55, wspace=0.45, right=0.75, bottom=0.12)
-    # plt.tight_layout()
     plt.savefig('Modes.eps', bbox_inches="tight")
     plt.savefig('Modes.png', bbox_inches="tight")
     plt.show()
@@ -119,17 +138,9 @@ def load_field_data(filename):
     field_data = field_data[:, :, :, -1]
     return field_data
 
-def main():
-
-    x,z = load_grid()
-    Phi_s = load_field_data("simulationStudy_s.pickle")
-    Phi_g = load_field_data("simulationStudyBulk.pickle")
-
-    # l2_err_epsilon = 3e-3 results in 15 modes
-    plot_full_POD_mode_selection(x, z, Phi_s, l2_err_epsilon=3e-3)
-
+def assemble_NN_training_validation_test_data(field_data, parameter_range_start=1.0, parameter_range_end=2.0):
     # assemble training, validation and test set
-    num_samples = Phi_s.shape[0]
+    num_samples = field_data.shape[0]
     indices = np.arange(num_samples)
 
     # Split indices
@@ -137,14 +148,25 @@ def main():
     train_idx, val_idx = train_test_split(train_val_idx, test_size=0.11111111, random_state=42)
 
     # Use indices to split data and parameters
-    Phi_s_train = Phi_s[train_idx]
-    Phi_s_val = Phi_s[val_idx]
-    Phi_s_test = Phi_s[test_idx]
+    field_data_train = field_data[train_idx]
+    field_data_val = field_data[val_idx]
+    field_data_test = field_data[test_idx]
 
-    size_ratios = np.linspace(1.0, 2.0, num_samples)
-    size_ratios_train = size_ratios[train_idx]
-    size_ratios_val = size_ratios[val_idx]
-    size_ratios_test = size_ratios[test_idx]
+    parameters = np.linspace(1.0, 2.0, num_samples)
+    parameters_train = parameters[train_idx]
+    parameters_val = parameters[val_idx]
+    parameters_test = parameters[test_idx]
+
+def main():
+    x,z = load_grid()
+    Phi_s = load_field_data("simulationStudy_s.pickle")
+    Phi_g = load_field_data("simulationStudyBulk.pickle")
+
+    # l2_err_epsilon = 3e-3 results in 15 modes
+    plot_full_POD_mode_selection(x, z, Phi_s, l2_err_epsilon=3e-3)
+
+    (Phi_s_train, Phi_s_val, Phi_s_test,
+    size_ratio_train, size_ratio_val, size_ratio_test) = assemble_NN_training_validation_test_data(Phi_s)
 
     # POD relative mean l2 error. relative to the bulk volume fraction magnitude:
     # E = ||u_n - u||_2 / ||u||_2
@@ -161,18 +183,6 @@ def main():
     plt.ylim(-40,40)
     plt.colorbar(contour, label='Density', format='%1.2f')  # Add a colorbar with label and formatting
     plt.axis("off")
-    #Add labels and title
-    #plt.xlabel('X-axis')
-    #plt.ylabel('Z-axis')
-    #plt.title('Contour Plot of Density')
-
-    # x = x.reshape((x.shape[0]*x.shape[1],-1)).T
-    # z = z.reshape((z.shape[0]*z.shape[1],-1)).T
-    # density = density.reshape((density.shape[0]*density.shape[1],-1)).T
-    # Add a grid for better readability
-    # plt.grid(True, linestyle='--', alpha=0.7)
-
-    # plt.show(block=False)
 
     U = NumpyVectorSpace.from_numpy(Phi_s.reshape((Phi_s.shape[0],-1)).T)
     modes, singular_values = pod(U, atol=0, rtol=0, l2_err=l2_err_mean)
@@ -219,83 +229,8 @@ def main():
     # Calculate the L2 norm of the difference between the Phi_s and the approximated Phi_s
     l2_norm = np.linalg.norm(Phi_s - np_V_approx)/(np.linalg.norm(Phi_s))
 
-    # plt.figure(2)
-    # plt.semilogy(singular_values, 'x-')
-    # plt.axhline(y=(3e-3 * np.linalg.norm(Phi_s)), linestyle="-", label=r'$\varepsilon$')
-    # plt.xlabel('$N$')
-    # plt.ylabel('$\sigma$ [-]')
-    # plt.legend()
-    # plt.savefig('myfile.png', bbox_inches="tight")
-    #
-    # plt.figure(3)
-    # plt.semilogy(l2_norm_vector, 'x-')
-    # plt.xlabel('$n$')
-    # plt.ylabel(r'$\frac{| \Phi-\Phi_n |_2}{| \Phi |_2}$ [-]')
-    # plt.tight_layout()
-    #
-    # sigma_square_vector.sort()
-    # sigma_square_vector[-1] = l2_err_mean ** 2
-    # sigma_square_vector.sort()
-    # plt.figure(4)
-    # plt.semilogy(sigma_square_vector, 'x-')
-    # plt.axhline(y=(3e-3 * np.linalg.norm(Phi_s))**2, linestyle="-", label=r'$\varepsilon$')
-    # plt.axvline(x=15, linestyle="--")
-    # plt.xlabel('$n$')
-    # plt.ylabel(r'$\sum_{i}^R \sigma_i^2$ [-]')
-    # plt.tight_layout()
-    # plt.show()
-    #
-    # abs_err = []
-    # for n in range(1, len(singular_values)+1):
-    #     tail_energy = np.sum(singular_values[n:]**2)
-    #     abs_err.append(np.sqrt(tail_energy))
-    #
-    # plt.figure()
-    # plt.semilogy(abs_err, 'x-')
-    # plt.axhline(3e-3 * np.linalg.norm(Phi_s), color="r", linestyle="--", label="Tolerance")
-    # plt.axvline(15, color="k", linestyle="--", label="Chosen modes")
-    # plt.xlabel("Number of modes")
-    # plt.ylabel(r'$\sum_{i = n+1}^R \sigma_i^2$ [-]')
-    # plt.legend()
-    # plt.tight_layout()
-    # plt.show()
 
-    # fig, axs = plt.subplots(2, 2, sharex=True, sharey=True)
-    # # normalise to [-1,1] to keep the negative and positive contributions to the field intact
-    # vmin = -1
-    # vmax = 1
-    # npModes_norm = npModes[:4] / np.max(np.abs(npModes[:4]), axis=(1, 2), keepdims=True)
-    # contours = []
-    # for i, ax in enumerate(axs.flat):
-    #     contour = ax.contourf(x[:, :, -1], z[:, :, -1], npModes_norm[i],
-    #                           cmap='seismic', levels=100, vmin=vmin, vmax=vmax)
-    #     contours.append(contour)
-    #     ax.set_title(f'Mode {i + 1}')
-    # # contour0 = axs[0, 0].contourf(x[:,:,-1], z[:,:,-1], npModes[0,:,:], cmap='viridis', levels=10)
-    # # fig.colorbar(contour0, ax=axs[0, 0], format='%1.2f',ticks=np.linspace(np.min(npModes[0,:,:]),np.max(npModes[0,:,:]),5))
-    # # contour1 = axs[0, 1].contourf(x[:,:,-1], z[:,:,-1], npModes[1,:,:], cmap='viridis', levels=10)
-    # # fig.colorbar(contour1, ax=axs[0, 1], label=r'$\Phi^{\mathrm{s}}$ [-]', format='%1.2f', ticks=np.linspace(np.min(npModes[1,:,:]),np.max(npModes[1,:,:]),5))
-    # # contour2 = axs[1, 0].contourf(x[:,:,-1], z[:,:,-1], npModes[2,:,:], cmap='viridis', levels=10)
-    # # fig.colorbar(contour2, ax=axs[1, 0], format='%1.2f', ticks=np.linspace(np.min(npModes[2,:,:]),np.max(npModes[2,:,:]),5))
-    # # contour3 = axs[1, 1].contourf(x[:,:,-1], z[:,:,-1], npModes[3,:,:], cmap='viridis', levels=10)
-    # # fig.colorbar(contour3, ax=axs[1, 1], label=r'$\Phi^{\mathrm{s}}$ [-]', format='%1.2f', ticks=np.linspace(np.min(npModes[3,:,:]),np.max(npModes[3,:,:]),5))
-    # sm = cm.ScalarMappable(cmap='seismic', norm=plt.Normalize(vmin=vmin, vmax=vmax))
-    # sm.set_array([])  # required for colorbar
-    # cbar = fig.colorbar(sm, ax=axs, orientation='vertical',
-    #                     format='%1.2f', ticks=np.linspace(vmin, vmax, 5))
-    # cbar.set_label(r'$\mathit{\Phi}^{\mathrm{s}\prime}$ [-]')
-    #
-    # # fig.subplots_adjust(hspace=0.35)
-    #
-    # fig.text(0.42, 0.03, '$x$ [m]', ha='center', va='center')
-    # fig.text(0.03, 0.5, '$y$ [m]', ha='center', va='center', rotation='vertical')
-    #
-    # fig.subplots_adjust(hspace=0.55, wspace=0.45, right=0.75, bottom=0.12)
-    # # plt.tight_layout()
-    # plt.savefig('Modes.eps', bbox_inches="tight")
-    # plt.savefig('Modes.png', bbox_inches="tight")
 
-    # plt.show(block=True)
     # Define contour levels, excluding zero
     levels = np.linspace(np.min(Phi_s[Phi_s > 0]), np.max(Phi_s), num=8)
     additional_levels = [0.01, 0.1, 0.5]
