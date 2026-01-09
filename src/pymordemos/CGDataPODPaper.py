@@ -223,7 +223,7 @@ class PODNNPipeline:
         #try:
             #pod = self.get_result(n_modes=modes)
         #except KeyError:
-        pod = self.apply_pod(n_modes=modes, compute_pod_with_training_data)
+        pod = self.apply_pod(n_modes=modes, compute_pod_with_training_data=compute_pod_with_training_data)
 
         # Step 3: train NN with train subset
         self.reduce_with_nn(pod, ann_rel_l2_err=1.0)
@@ -263,7 +263,7 @@ class PODNNPipeline:
         return result
 
     # apply POD and Neural Network Reduction and append reference to results list
-    def apply_pod(self, epsilon=3e-3, n_modes=None, compute_pod_with_training_data = False) -> MORResult:
+    def apply_pod(self, epsilon=3e-3, n_modes=None, compute_pod_with_training_data=False) -> MORResult:
         """
         Compute POD for the given training data and relative L2 error.
         Returns the MORResult and stores it internally.
@@ -371,7 +371,6 @@ class PODNNPipeline:
             Reconstructed snapshots with shape (n_snapshots, nx, nz).
         """
         # Projection coefficients (inner product)
-        #TODO CHECK COEFFICIENTS! TO KNOW HOW THE MODES LOOK LIKE
         coefficients = self.sim_data.test_snapshots().inner(mor_result.modes)
         #print(np.sign(coefficients))
         # Reconstruct solutions from reduced basis by linear combination of modes and coefficients
@@ -469,7 +468,7 @@ class PODNNPipeline:
         mor_result.nn_errors_mean = nn_errors_mean
 
     # plotting functions for figures
-    def plot_pod_error_and_modes(self, mor_result: MORResult, num_modes: int = 4):
+    def plot_pod_error_and_modes(self, num_modes: int = 4):
         """
         Plot singular values, cumulative tail error, and the first few normalized POD modes.
 
@@ -483,16 +482,17 @@ class PODNNPipeline:
         train_data = self.sim_data.train_data
         x = self.sim_data.x
         z = self.sim_data.z
-        epsilon = mor_result.epsilon
-        modes = mor_result.modes
-#TODO CHANGE POD MODE AND COEFFICIENT SIGN TO POSITIVE OF THE FIRST AND THIRD MODE!! SWITHC BOTH COEFF AND MODE SIGN
+        pod_result = self.apply_pod()
+        epsilon = pod_result.epsilon
+        modes = pod_result.modes
+
         # compute a full POD with all modes except the last one
         # used for plotting only, to intuitively show the mode selection procedure
-        full_modes, full_singular_values = pod(self.sim_data.train_snapshots(),
-                                               modes=len(self.sim_data.train_snapshots())-1)
+        full_modes, full_singular_values = pod(self.sim_data.all_snapshots(),
+                                               modes=len(self.sim_data.all_snapshots())-1)
 
         # Absolute mean L2 error threshold
-        l2_err_mean_epsilon = epsilon * np.linalg.norm(train_data)
+        l2_err_mean_epsilon = epsilon * np.linalg.norm(self.sim_data.field_data)
 
         # --- absolute l2 error ---
         abs_err = [np.sqrt(np.sum(full_singular_values[n:] ** 2)) for n in range(len(full_singular_values))]
@@ -509,7 +509,7 @@ class PODNNPipeline:
         # --- Plot absolute l2 error over the number of selected modes ---
         plt.figure()
         plt.semilogy(abs_err, 'x-')
-        plt.axhline(l2_err_mean_epsilon, color="r", linestyle="--", label=f'$\\varepsilon={epsilon}$')
+        plt.axhline(l2_err_mean_epsilon, color="r", linestyle="--", label=f'$\\varepsilon$')
         plt.axvline(len(modes), color="k", linestyle="--", label=f'$n={len(modes)}$')
         ax = plt.gca()
         ax.set_xlabel("$n$ [-]")
@@ -519,7 +519,6 @@ class PODNNPipeline:
         plt.tight_layout()
         plt.savefig('ModeSelection.eps', bbox_inches="tight", pad_inches=0.2)
         plt.savefig('ModeSelection.png', bbox_inches="tight")
-        plt.close()
 
         # --- Plot the first num_modes normalized modes ---
         npModes = modes.to_numpy().T.reshape((len(modes), x.shape[0], z.shape[0]))
@@ -532,14 +531,15 @@ class PODNNPipeline:
         vmin, vmax = -1, 1
 
         for i in range(num_modes):
-            axs[i].contourf(x[:, :, -1], z[:, :, -1], npModes_norm[i], cmap='seismic', levels=100, vmin=vmin, vmax=vmax)
-            axs[i].set_title(f'Mode {i + 1}')
+            # BEWARE, changed sign of modes for better interpretability, i.e. changed the orientation
+            axs[i].contourf(x[:, :, -1], z[:, :, -1], -npModes_norm[i], cmap='seismic', levels=100, vmin=vmin, vmax=vmax)
+            axs[i].set_title(f'$\\boldsymbol{{\\psi}}_{i + 1}$')
 
         # create a continuous colorbar with a diverging colormap to see positive
         # and negative contributions of the modes
         sm = cm.ScalarMappable(cmap='seismic', norm=colors.Normalize(vmin=vmin, vmax=vmax))
         sm.set_array([])
-        fig.colorbar(sm, ax=axs[:num_modes], orientation='vertical', format='%1.2f', ticks=np.linspace(vmin, vmax, 5))
+        fig.colorbar(sm, ax=axs[:num_modes], label=r'$\bar{\Phi}^{\mathrm{s}\prime}$ [-]', orientation='vertical', format='%1.2f', ticks=np.linspace(vmin, vmax, 5))
 
         fig.text(0.42, 0.03, '$x$ [m]', ha='center', va='center')
         fig.text(0.03, 0.5, '$y$ [m]', ha='center', va='center', rotation='vertical')
@@ -725,9 +725,9 @@ class PODNNPipeline:
 
         if "errors_gap.npy" in os.listdir("."):
             print("Loading existing error data from 'errors_gap.np', 'errors_pod.np', 'errors_nn.np'")
-            errors_gap = np.load("errors_gap.npy")
-            errors_pod = np.load("errors_pod.npy")
-            errors_nn = np.load("errors_nn.npy")
+            errors_gap = np.load("errors_gap_variable_layers2.npy")
+            errors_pod = np.load("errors_pod_variable_layers2.npy")
+            errors_nn = np.load("errors_nn_variable_layers2.npy")
 
             n_modes_loaded, n_train_loaded = errors_nn.shape
 
@@ -751,7 +751,8 @@ class PODNNPipeline:
                             errors_gap[i, j] = np.nan
                             continue
                     # Run POD + NN with given parameters
-                    self.run_pipeline(modes=n_modes, train_size=train_size, compute_pod_with_training_data)
+                    self.run_pipeline(modes=n_modes, train_size=train_size,
+                                      compute_pod_with_training_data=compute_pod_with_training_data)
 
                     # Attach to pipeline-managed results (NOT NEEDED?)
                     #self.results.append(mor_result)
@@ -799,7 +800,7 @@ class PODNNPipeline:
         cbar.update_ticks()
         cbar.ax.minorticks_off()
 
-        ax.set_xlabel(r"$n_{\mathrm{train}}$")
+        ax.set_xlabel(r"$M_{\mathrm{train}}$")
         ax.set_ylabel(r"$n$")
         ax.set_xlim(1, 80)
         ax.set_ylim(1, 80)
@@ -840,7 +841,7 @@ class PODNNPipeline:
         cbar.update_ticks()
         cbar.ax.minorticks_off()
 
-        plt.xlabel(r"$n_{train}$")
+        plt.xlabel(r"$M_{train}$")
         plt.ylabel(r"$n$")
         plt.tight_layout()
         plt.savefig("Errors_pod.eps", bbox_inches="tight")
@@ -850,10 +851,15 @@ class PODNNPipeline:
         #max_abs = np.nanmax(np.abs(errors_gap))
         #errors_norm = errors_gap / max_abs
         plt.figure()
-        plt.semilogy(modes_list, errors_pod[:,-1])
+        plt.semilogy(modes_list, errors_pod[:,79], label=r"$E^{\mathrm{POD}}_{\mathrm{m}}$")
+        plt.semilogy(modes_list, errors_nn[:,89], "--", label=r"$E^{\mathrm{NN}}_{\mathrm{m}}$, $N_{\mathrm{train}}=90$")
+        plt.semilogy(modes_list, errors_nn[:,19], "--", label=r"$E^{\mathrm{NN}}_{\mathrm{m}}$, $N_{\mathrm{train}}=20$")
+        #plt.semilogy(modes_list, errors_nn[:,19], "--", label=r"$E^{\mathrm{NN}}_{\mathrm{m}}, n_{\mathrm{train}}=20$")
+        plt.semilogy(modes_list, errors_nn[:,9], "--", label=r"$E^{\mathrm{NN}}_{\mathrm{m}}, N_{\mathrm{train}}=10$")
 
-        plt.ylabel(r"$E^{\mathrm{POD}}_{\mathrm{m}}$ [-]")
-        plt.xlabel(r"$n$")
+        plt.ylabel(r"$E_{\mathrm{m}}$ [-]")
+        plt.xlabel(r"$n$ [-]")
+        plt.legend()
         plt.xticks([0, 20, 40, 60, 80, 100])
         plt.tight_layout()
         plt.savefig("Errors_pod_line.eps", bbox_inches="tight")
@@ -867,18 +873,17 @@ class PODNNPipeline:
         cbar.update_ticks()
         cbar.ax.minorticks_off()
 
-        plt.xlabel(r"$n_{train}$")
+        plt.xlabel(r"$M_{train}$")
         plt.ylabel(r"$n$")
         plt.tight_layout()
         plt.savefig("Errors_gap.eps", bbox_inches="tight")
         plt.savefig("Errors_gap.png", bbox_inches="tight")
         plt.show()
 
-    def plot_mixing_index_over_parameters(self, field_data_bulk_file):
+    def plot_mixing_index_over_parameters(self, pipeline_bulk):
         # Load bulk field data (Phi_g)
-        field_data_bulk = pickle.load(open(field_data_bulk_file, "rb"))
-
-        Phi_g = field_data_bulk[:, :, :, -1]  # shape: (n_sim, nx, nz)
+        Phi_g = pipeline_bulk.sim_data.field_data  # shape: (n_sim, nx, nz)
+        Phi_g_NN = pipeline_bulk.solve_and_reconstruct_set(pipeline_bulk.get_last_result(), pipeline_bulk.sim_data.parameters)
         Phi_s_NN = self.solve_and_reconstruct_set(self.get_last_result(), self.sim_data.parameters)
         Phi_s = self.sim_data.field_data  # shape: (n_sim, nx, nz)
         params = self.sim_data.parameters  # shape: (n_sim,)
@@ -906,7 +911,7 @@ class PODNNPipeline:
 
             # NN-predicted field
             phi_s_nn = np.zeros_like(Phi_s_NN[i], dtype=float)
-            phi_s_nn[mask] = Phi_s_NN[i][mask] / Phi_g[i][mask]
+            phi_s_nn[mask] = Phi_s_NN[i][mask] / Phi_g_NN[i][mask]
             phi_l_nn = 1.0 - phi_s_nn
             phi_s_nn = np.clip(phi_s_nn, eps, 1.0)
             phi_l_nn = np.clip(phi_l_nn, eps, 1.0)
@@ -921,10 +926,10 @@ class PODNNPipeline:
         dS_nn = np.array(dS_nn)
 
         plt.figure()
-        plt.plot(params, dS_true, label=r'$\Delta S$')
-        plt.plot(params, dS_nn, '--', label=r'$\Delta S^{\mathrm{NN}}$')
+        plt.plot(params, dS_true, ".", label=r'$M$', markersize=5)
+        plt.plot(params, dS_nn, '-', label=r'$\tilde{M}$', linewidth=1.5)
         plt.xlabel(r'$s$ [-]')
-        plt.ylabel(r'$\Delta S$ [-]')
+        plt.ylabel(r'$M$ [-]')
         plt.legend()
         plt.tight_layout()
         plt.savefig("mixing_index.png", bbox_inches="tight")
@@ -1065,7 +1070,6 @@ class PODNNPipeline:
         # coeff_mean has shape (M, nFiles) or (nFiles, M) depending on pod implementation
         # rescale by svals_mean from POD to get actual coefficients
         a_true_mean = (np.diag(svals_mean) @ coeff_mean).T  # shape (nFiles, M)
-        # TODO Variance correction by stephan, L**2 instead of L??
         # L = a_true_mean.shape[0]
         # rms_mean_coeff_per_mode = np.sqrt(np.sum(a_true_mean ** 2, axis=0) /L)
         rms_mean_coeff_per_mode = np.sqrt(np.mean(a_true_mean ** 2, axis=0))
@@ -1224,12 +1228,23 @@ def main():
 
     # 2. Create pipeline
     pipeline = PODNNPipeline(sim_data)
-    #pipeline.run_pipeline(30,50)
-    # pipeline.plot_mixing_index_over_parameters("simulationStudyBulk.pickle")
+    pipeline.run_pipeline(30,50)
+
+    sim_data_bulk =  SimData.from_files(field_file="simulationStudyBulk.pickle", testset_file="simulationStudy_test.pickle",
+                                  testset_params = testset_params, x_file="x_s.pickle", z_file="z_s.pickle")
+    sim_data_bulk.split_fixed(seed=42)
+    # sim_data.split_for_train_size(60)
+
+    # 2. Create pipeline
+    pipeline_bulk = PODNNPipeline(sim_data_bulk)
+    pipeline_bulk.run_pipeline(30,50)
+
+    #pipeline.plot_mixing_index_over_parameters(pipeline_bulk)
     # pipeline.apply_pca(n_modes=20)
     #pipeline.compute_floor_noise()
     # pipeline.run_pipeline(89,60)
-    # pipeline.plot_pod_error_and_modes(pipeline.get_last_result(), num_modes=4)
+    #pipeline.plot_pod_nn_errors()
+    #pipeline.plot_pod_error_and_modes()
     modes_list = np.linspace(1,100, 100).astype(int)
     train_size_list = np.linspace(1,99,99).astype(int)
 
