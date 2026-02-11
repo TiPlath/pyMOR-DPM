@@ -1,26 +1,20 @@
 import os
 import random
 
-from scipy import np_maxversion
+import matplotlib.cm as cm
+import matplotlib.colors as colors
+import matplotlib.pyplot as plt
+import numpy as np
+# fix seeds to get deterministic results
+import torch
+from matplotlib import ticker
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
+from sklearn.model_selection import train_test_split
 
 from pymor.basic import *
-from scipy.io import loadmat
-from pymor.algorithms.error import *
 from pymor.reductors.neural_network import NeuralNetworkReductor
 from pymor.vectorarrays.interface import VectorArray
 
-from sklearn.model_selection import train_test_split
-
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import matplotlib.colors as colors
-from matplotlib import ticker
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
-import matplotlib.gridspec as gridspec
-
-#fix seeds to get deterministic results
-import torch
 torch.manual_seed(42)
 torch.use_deterministic_algorithms(True)
 if torch.cuda.is_available():
@@ -56,12 +50,9 @@ class SimData:
         self.z = z
 
         # filled by split()
-        self.train_data = None
-        self.val_data = None
-        self.test_data = None
-        self.train_params = None
-        self.val_params = None
-        self.test_params = None
+        self.train_data = self.val_data = self.test_data = None
+        self.train_params = self.val_params = self.test_params = None
+        self.train_idx = self.val_idx = self.test_idx = None
         self.data_params = None
         self.data_permutation = None
 
@@ -194,7 +185,7 @@ class PODNNPipeline:
 
         self.compute_pod_with_training_data = False
 
-    def run_pipeline(self, modes: int, train_size: int, compute_pod_with_training_data = False) -> MORResult:
+    def run_pipeline(self, modes: int, train_size: int, compute_pod_with_training_data = False):
         """
         Run one POD + NN experiment with given number of modes and training size.
         Validation size adapts automatically according to N_val = N-N_train.
@@ -202,14 +193,14 @@ class PODNNPipeline:
         # Split into train/val/test
         self.sim_data.split_for_train_size(train_size)
         # Apply POD and cut at given modes
-        pod = self.apply_pod(n_modes=modes, compute_pod_with_training_data=compute_pod_with_training_data)
+        pod_result = self.apply_pod(n_modes=modes, compute_pod_with_training_data=compute_pod_with_training_data)
 
         # Train NN with train/val subset
-        self.reduce_with_nn(pod, ann_rel_l2_err=1.0)
+        self.reduce_with_nn(pod_result, ann_rel_l2_err=1.0)
 
         # Compute POD and NN errors once (train, val, test at once)
-        self.compute_pod_error(pod)
-        self.compute_nn_error(pod)
+        self.compute_pod_error(pod_result)
+        self.compute_nn_error(pod_result)
 
     # retrieve MORResult for a given epsilon from the results list
     def get_result(self, epsilon: float = None, n_modes: int = None,  tol=1e-12) -> MORResult:
@@ -270,7 +261,7 @@ class PODNNPipeline:
         self.results.append(result)
         return result
 
-    def reduce_with_nn(self, mor_result: MORResult, ann_rel_l2_err: float = 1e-2) -> MORResult:
+    def reduce_with_nn(self, mor_result: MORResult, ann_rel_l2_err: float = 1e-2):
         """
         Train a neural network reduced-order model for the given POD basis which was
         computed with a specific epsilon.
@@ -283,7 +274,7 @@ class PODNNPipeline:
         # compute absolute MSE from relative L2 error
         ann_mse = ann_rel_l2_err ** 2 * np.linalg.norm(self.sim_data.field_data)
 
-        # ann_mse="like_basis" would be an ann_mse of: (np.sum(Phi_s**2) - np.sum(singular_values**2)) / 100),
+        # ann_mse="like_basis" would be an ann_mse of: (np.sum(Phi_s**2) - np.sum(singular_values**2)) / 100.
         # but with this high error threshold it does not find a neural network below the prescribed error.
         reductor = NeuralNetworkReductor(
             training_parameters=self.sim_data.parse_train_params(),
@@ -358,7 +349,8 @@ class PODNNPipeline:
         return self.sim_data.reshape_vector_array(reconstruction)
 
     # general purpose relative l2-error computation
-    def compute_relative_errors(self, truth: np.ndarray, preds: np.ndarray, axis=(1, 2)):
+    @staticmethod
+    def compute_relative_errors(truth: np.ndarray, preds: np.ndarray, axis=(1, 2)):
         """
         Compute relative L2 errors between truth and predictions.
         Assumes that the 0-th axis holds the different snapshots and the remaining axes are spatial dimensions.
@@ -380,8 +372,10 @@ class PODNNPipeline:
         num = np.linalg.norm(truth - preds, axis=axis)
         den = np.linalg.norm(truth, axis=axis)
         return num / den
+
     # general purpose mean relative l2-error computation
-    def compute_mean_relative_error(self, truth: np.ndarray, preds: np.ndarray):
+    @staticmethod
+    def compute_mean_relative_error(truth: np.ndarray, preds: np.ndarray):
         """
         Compute the mean relative L2 error between truth and predictions.
 
@@ -401,7 +395,7 @@ class PODNNPipeline:
         den = np.linalg.norm(truth)
         return num / den
 
-    def compute_pod_error(self, mor_result: MORResult, truth: np.ndarray = None) -> MORResult:
+    def compute_pod_error(self, mor_result: MORResult, truth: np.ndarray = None):
         """
         Reconstruct solutions using POD for a set of parameters and compute errors.
 
@@ -453,12 +447,9 @@ class PODNNPipeline:
 
         Parameters
         ----------
-        mor_result : MORResult
-            The MORResult object containing epsilon, modes, and singular values.
         num_modes : int, optional
             Number of first POD modes to plot (default: 4).
         """
-        train_data = self.sim_data.train_data
         x = self.sim_data.x
         z = self.sim_data.z
         pod_result = self.apply_pod()
@@ -568,7 +559,7 @@ class PODNNPipeline:
         titles = [rf'$u_N(\mu)$', r'$u(\mu)$']
 
         for ax, dat, title in zip(axes, data, titles):
-            contour = ax.contourf(x[:, :, -1], z[:, :, -1], dat, cmap='Greys', levels=levels)
+            ax.contourf(x[:, :, -1], z[:, :, -1], dat, cmap='Greys', levels=levels)
             ax.set_xlim(x.min(), x.max())
             ax.set_ylim(z.min(), z.max())
             ax.set_aspect('equal')
@@ -664,10 +655,6 @@ class PODNNPipeline:
         pod_error = mor_result.pod_errors
         nn_errors = mor_result.nn_errors
 
-        size_ratios_train = np.arange(1, len(nn_errors["train"]) + 1)
-        size_ratios_val = np.arange(1, len(nn_errors["val"]) + 1)
-        size_ratios_test = np.arange(1, len(nn_errors["test"]) + 1)
-
         plt.figure()
         plt.semilogy(self.sim_data.parameters, pod_error, ".", label='$u_n$')
         plt.semilogy(self.sim_data.train_params, nn_errors["train"], ".", color="red", label=r'$\tilde{u}_n^{\mathrm{train}}$')
@@ -699,6 +686,8 @@ class PODNNPipeline:
             List of POD mode numbers to test.
         train_sizes_list : list[int]
             List of training sample sizes for NN.
+        compute_pod_with_training_data : bool
+            Boolean to determine if the pod should be computed with training data or all snapshots.
         """
         self.sim_data.shuffle(seed=42)
 
@@ -781,7 +770,7 @@ class PODNNPipeline:
                            bbox_to_anchor=(0.14, -0.07, 1, 1),
                            bbox_transform=ax.transAxes, borderpad=0)
         # Plot the same data into the inset
-        contour_inset = axins.contourf(X, Y, errors_nn, levels=levels, cmap=cmap,
+        axins.contourf(X, Y, errors_nn, levels=levels, cmap=cmap,
                                        norm=colors.LogNorm(vmin=vmin, vmax=vmax))
 
         # Set zoomed region
@@ -902,85 +891,84 @@ class PODNNPipeline:
         """
         Compute the floor noise of the simulation data as the minimum non-zero value
         across K time-windowed snapshots with W time windows.
-
-        Returns
-        -------
-        float
-            The computed floor noise value.
         """
 
-        # create a SimData object from time window simulations
+        # -----------------------------
+        # A) Load and reshape time-windowed data
+        # -----------------------------
         V = SimData.from_files(
-            field_file="Phis_time_windows.pickle", testset_file="Phis_test.pickle",
-            testset_params=self.sim_data.test_params, x_file="x.pickle", z_file="z.pickle")
+            field_file="Phis_time_windows.pickle",
+            testset_file="Phis_test.pickle",
+            testset_params=self.sim_data.test_params,
+            x_file="x.pickle",
+            z_file="z.pickle",
+        )
         V.shuffle(seed=42)
         V.split_for_train_size(train_size=80)
 
-        # Compute mean and standard deviation across time windows
-        nWindows = 10  # number of time windows per simulation
-        nFiles = V.field_data.shape[0] // nWindows
-        nx, ny = V.field_data.shape[1:]
+        # number of time windows per simulation (W)
+        nWindows = 10
+        nSamples, nx, ny = V.field_data.shape
+        nFiles = nSamples // nWindows
         space_dim = nx * ny
 
-        # -------------------------------------------------------
-        # 1) Reshape field data back to (nFiles, nWindows, nx, ny)
-        # -------------------------------------------------------
+        # reshape into (nFiles, nWindows, nx, ny)
         V_field = V.field_data.reshape(nFiles, nWindows, nx, ny)
 
-        # ---------------------------------------------------------
-        # 2) Compute per-simulation mean and fluctuations
-        # ---------------------------------------------------------
+        # per-simulation mean (averaged across windows) and fluctuations
         V_mean = np.mean(V_field, axis=1)  # (nFiles, nx, ny)
-        V_std = V_field - V_mean[:, None, :, :]  # (nFiles, nWindows, nx, ny)
+        V_std = V_field - V_mean[:, None, :, :]  # centered fluctuations (nFiles, nWindows, nx, ny)
 
-        # ---------------------------------------------------------
-        # 3) Create pyMOR VectorArrays
-        # ---------------------------------------------------------
-        # Flatten spatial dimensions for pyMOR
-        V_mean_vec = NumpyVectorSpace.from_numpy(V_mean.reshape(nFiles, space_dim).T)
-        V_field_vec = NumpyVectorSpace.from_numpy(V_field.reshape(nFiles * nWindows, space_dim).T)
+        # flattened forms for linear algebra operations
+        V_mean_flat = V_mean.reshape(nFiles, space_dim)  # (nFiles, space_dim)
+        V_field_flat = V_field.reshape(nFiles * nWindows, space_dim)  # (nFiles * nWindows, space_dim)
+        # pyMOR form for POD
+        V_mean_vec = NumpyVectorSpace.from_numpy(V_mean_flat.T)
 
-        # ---------------------------------------------------------
-        # 4) POD on mean fields (get spatial modes)
-        # ---------------------------------------------------------
+        # -----------------------------
+        # B) POD on the per-simulation mean fields -> spatial modes + singular values + reduced coefficients
+        # -----------------------------
         modes_mean, svals_mean, coeff_mean = pod(V_mean_vec, return_reduced_coefficients=True)
-        n = coeff_mean.shape[0]
-        print(f"Computed {n} POD modes from mean fields")
+        # coeff_mean is expected shape (n_modes, nFiles)
+        n_modes = coeff_mean.shape[0]
+        print(f"Computed {n_modes} POD modes from mean fields")
 
-        # ---------------------------------------------------------
-        # 5) Project all windows onto the POD modes to get coefficients
-        # ---------------------------------------------------------
-        # Center the full data for consistency
-        X_flat = V_field.reshape(nFiles * nWindows, space_dim)
+        # Recover true mean coefficients per simulation in physical scale:
+        # mean_coeffs (nFiles, n_modes) = coeff_mean.T * svals_mean
+        mean_coeffs = coeff_mean.T * svals_mean[np.newaxis, :]
 
-        # Projection using pyMOR inner products
-        # coeffs is the same as coeff_mean when we rehape accordingly and take the mean over the windows
-        # and rescale coeff_mean by svals_mean
-        basis_mat = modes_mean.to_numpy().T  # (M, space_dim)
-        coeffs = X_flat @ basis_mat.T  # (nSamples, M)
-        coeffs = coeffs.reshape(nFiles, nWindows, n)
+        # -----------------------------
+        # C) Project all windows onto POD basis -> per-window coefficients
+        # -----------------------------
+        # Use the explicit basis matrix for clarity and to avoid relying on differing
+        # pyMOR VectorArray return shapes across versions.
+        basis_mat = modes_mean.to_numpy().T  # (n_modes, space_dim)
+        coeffs_all = V_field_flat @ basis_mat.T  # (nFiles*nWindows, n_modes)
+        coeffs = coeffs_all.reshape(nFiles, nWindows, n_modes)  # (nFiles, nWindows, n_modes)
 
-        # ---------------------------------------------------------
-        # 6) Compute per-mode homogenization noise
-        # ---------------------------------------------------------
-        coeff_var_per_sim = np.var(coeffs, axis=1, ddof=1)  # (nFiles, M)
-        noise_var_per_mode = np.mean(coeff_var_per_sim, axis=0) / nWindows  # (M,)
+        # -----------------------------
+        # D) Compute per-mode homogenisation noise from window variability
+        # -----------------------------
+        # variance across windows for each simulation and mode
+        coeff_var_per_sim = np.var(coeffs, axis=1, ddof=1)  # (nFiles, n_modes)
+        # scale by 1/nWindows to get the standard error of the mean (assuming independent windows)
+        noise_var_per_mode = np.mean(coeff_var_per_sim, axis=0) / nWindows  # (n_modes,)
         noise_std_per_mode = np.sqrt(noise_var_per_mode)
 
-        # ---------------------------------------------------------
-        # 7) Total field-level relative noise
-        # ---------------------------------------------------------
-        V_mean_flat = V_mean.reshape(nFiles, space_dim)
+        # -----------------------------
+        # E) Field-level relative noise (for printing only to get a feeling for the error magnitude)
+        # -----------------------------
         V_std_flat = V_std.reshape(nFiles, nWindows, space_dim)
-
         std_field_per_sim = np.sqrt(np.mean(np.sum(V_std_flat ** 2, axis=2), axis=1))
         norm_mean_field_per_sim = np.sqrt(np.sum(V_mean_flat ** 2, axis=1))
 
-        relative_field_noise_per_sim = std_field_per_sim / (norm_mean_field_per_sim)
+        relative_field_noise_per_sim = std_field_per_sim / norm_mean_field_per_sim
         relative_field_noise_mean = np.mean(relative_field_noise_per_sim)
         relative_field_noise_std = np.std(relative_field_noise_per_sim)
 
-
+        # -----------------------------
+        # F) Train / validation split to train the neural network reductor
+        # -----------------------------
         rng = np.random.default_rng(123)
         indices = np.arange(nFiles)
         rng.shuffle(indices)
@@ -989,19 +977,21 @@ class PODNNPipeline:
         val_idx = indices[n_train:]
 
         params_unique = np.unique(V.parameters)
-        train_params = [params_unique[i] for i in train_idx]  # list or array matching pyMOR expected format
+        train_params = [params_unique[i] for i in train_idx]
         val_params = [params_unique[i] for i in val_idx]
+        # Parse into pyMOR parameters
         train_params = [Parameters({"VolumeRatio": 1}).parse(p) for p in train_params]
         val_params = [Parameters({"VolumeRatio": 1}).parse(p) for p in val_params]
-        # prepare VectorArrays for training/validation snapshots
-        train_snap_mat = V_mean.reshape(nFiles, space_dim)[train_idx].T  # (space_dim, n_train)
-        val_snap_mat = V_mean.reshape(nFiles, space_dim)[val_idx].T  # (space_dim, n_val)
+
+        # prepare VectorArrays for training/validation snapshots (using the mean field per parameter)
+        train_snap_mat = V_mean_flat[train_idx].T  # (space_dim, n_train)
+        val_snap_mat = V_mean_flat[val_idx].T  # (space_dim, n_val)
         train_snapshots = NumpyVectorSpace.from_numpy(train_snap_mat)
         val_snapshots = NumpyVectorSpace.from_numpy(val_snap_mat)
-        # ---------------------------------------------------------
-        # 8) Neural network reduction & prediction
-        # ---------------------------------------------------------
-        # Build a reductor using pyMORs neural network reductor
+
+        # -----------------------------
+        # G) Build, train NN reductor and predict mean coefficients for all parameters
+        # -----------------------------
         reductor = NeuralNetworkReductor(
             training_parameters=train_params,
             training_snapshots=train_snapshots,
@@ -1013,40 +1003,32 @@ class PODNNPipeline:
 
         rom = reductor.reduce(restarts=10, log_loss_frequency=10, lr_scheduler=None)
 
-        # Predict mean coefficients for all samples
-        a_pred_mean = np.zeros((nFiles, n))
+        # predicted mean reduced coefficients for each unique parameter
+        a_pred_mean = np.zeros((nFiles, n_modes))
         for i, mu in enumerate(params_unique):
-            a_pred_mean[i, :] = rom.solve(mu).to_numpy()[:,-1]
+            a_pred_mean[i, :] = rom.solve(mu).to_numpy()[:, -1]
 
-        # POD modes already computed from V_mean_vec (uncentered)
-        # coeff_mean has shape (M, nFiles) or (nFiles, M) depending on pod implementation
-        # rescale by svals_mean from POD to get actual coefficients
-        a_true_mean = (np.diag(svals_mean) @ coeff_mean).T  # shape (nFiles, M)
-        # L = a_true_mean.shape[0]
-        # rms_mean_coeff_per_mode = np.sqrt(np.sum(a_true_mean ** 2, axis=0) /L)
-        rms_mean_coeff_per_mode = np.sqrt(np.mean(a_true_mean ** 2, axis=0))
-        # Simulation noise (centered across windows)
-        # delta_coeffs = coeffs - np.mean(coeffs, axis=1)[:, None, :]  # (nFiles, nWindows, M)
-        noise_std_per_mode = np.sqrt(np.mean(np.var(coeffs, axis=1, ddof=1) / nWindows, axis=0))
+        # -----------------------------
+        # H) RMSE per mode (and normalized RMSE)
+        # -----------------------------
+        # RMS of true mean coefficients per mode (normalization for relative metrics)
+        rms_mean_coeff_per_mode = np.sqrt(np.mean(mean_coeffs ** 2, axis=0))
+        # relative noise per mode (normalized by RMS of mean coefficients)
         relative_noise_per_mode = noise_std_per_mode / rms_mean_coeff_per_mode
-        relative_noise_std_per_mode = noise_std_per_mode / rms_mean_coeff_per_mode
 
+        a_true_mean = mean_coeffs  # (nFiles, n_modes)
         rmse_per_mode = np.sqrt(np.mean((a_pred_mean - a_true_mean) ** 2, axis=0))
         relative_rmse_per_mode = rmse_per_mode / rms_mean_coeff_per_mode
-        # Standard deviation across simulations for each mode
-        rmse_std_per_mode = np.std(a_pred_mean - a_true_mean, axis=0, ddof=1)  # (M,)
-        relative_rmse_std_per_mode = rmse_std_per_mode / rms_mean_coeff_per_mode
 
-        # -------------------------
-        # 10) PLOTTING: relative noise vs mode, and total field relative noise
-        # -------------------------
-        modes = np.arange(1, n + 1)
+        # -----------------------------
+        # I) Plot per-mode results
+        # -----------------------------
+        modes = np.arange(1, n_modes + 1)
         plt.figure()
-        plt.semilogy(modes, relative_noise_per_mode, "o-", label=r'$\mathcal{E}_i^\sigma$')
+        plt.semilogy(modes, relative_noise_per_mode, "o-", label=r'$\mathcal{E}_i^{\sigma}$')
         plt.semilogy(modes, relative_rmse_per_mode, "x--", label=r'$\mathcal{E}_i^{\mathrm{NN}}$')
         plt.xlabel(r'$i$')
         plt.ylabel(r'$\mathcal{E}_i$')
-        #plt.title(r"\sigma^\prime = {relative_field_noise_mean:.3e} ± {relative_field_noise_std:.3e}")
         plt.legend()
         plt.tight_layout()
         plt.savefig('FloorNoise_perMode.eps', bbox_inches="tight")
