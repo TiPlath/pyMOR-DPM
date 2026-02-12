@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 
 from pymor.algorithms.ml.nn import NeuralNetworkRegressor
 from pymor.basic import *
-from pymor.reductors.data_driven import DataDrivenPODReductor, DataDrivenReductor
+from pymor.reductors.data_driven import DataDrivenPODReductor
 from pymor.vectorarrays.interface import VectorArray
 
 torch.manual_seed(42)
