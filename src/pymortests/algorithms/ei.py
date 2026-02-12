@@ -3,11 +3,13 @@
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
 
 import numpy as np
+import pytest
 
 from pymor.algorithms.ei import ei_greedy
 from pymor.algorithms.pod import pod
 from pymor.operators.ei import EmpiricalInterpolatedOperator
 from pymor.reductors.basic import StationaryRBReductor
+from pymor.solvers.generic import LGMRESSolver
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 from pymortests.base import assert_all_almost_equal, runmodule
 
@@ -17,7 +19,8 @@ def test_ei_restricted_to_full(stationary_models):
     op = model.operator
     cb = op.range.from_numpy(np.eye(op.range.dim))
     dofs = list(range(cb.dim))
-    ei_op = EmpiricalInterpolatedOperator(op, collateral_basis=cb, interpolation_dofs=dofs, triangular=True)
+    ei_op = EmpiricalInterpolatedOperator(op, collateral_basis=cb, interpolation_dofs=dofs, triangular=True,
+                                          solver=LGMRESSolver())
     ei_model = model.with_(operator=ei_op)
 
     mus = model.parameters.space(1, 2).sample_randomly(3)
@@ -53,12 +56,13 @@ def test_ei_rom(stationary_models):
     rb, svals = pod(U, rtol=1e-7)
     reductor = StationaryRBReductor(ei_fom, rb)
     rom = reductor.reduce()
-    for mu, u in zip(base_mus, U):
+    for mu, u in zip(base_mus, U, strict=True):
         ru = rom.solve(mu)
         ru_rec = reductor.reconstruct(ru)
         assert_all_almost_equal(u, ru_rec, rtol=1e-10)
 
 
+@pytest.mark.builtin
 def test_ei_greedy_complex_data():
     space = NumpyVectorSpace(10)
     U = space.random(3) * 1.j + space.random(3)

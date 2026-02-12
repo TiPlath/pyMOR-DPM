@@ -7,10 +7,11 @@ import platform
 import sys
 import warnings
 from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version
 
 from packaging.version import parse
 
-from pymor.core.exceptions import DependencyMissingError, QtMissingError, TorchMissingError
+from pymor.core.exceptions import DependencyMissingError, QtMissingError, SklearnMissingError, TorchMissingError
 
 
 def _can_import(module):
@@ -21,7 +22,7 @@ def _can_import(module):
         except ImportError:
             pass
         return False
-    if not isinstance(module, (list, tuple)):
+    if not isinstance(module, list | tuple):
         module = [module]
     return all(_can_import_single(m) for m in module)
 
@@ -57,27 +58,12 @@ def _get_fenics_version():
     return df.__version__
 
 
-def _get_dunegdt_version():
-    import importlib
-    version_ranges = {'dune-gdt': ('2021.1.2', '2023.2'), 'dune-xt': ('2021.1.2', '2023.2')}
-
-    def _get_version(dep_name):
-        min_version, max_version = version_ranges[dep_name]
-        module = importlib.import_module(dep_name.replace('-', '.'))
-        try:
-            version = module.__version__
-            if parse(version) < parse(min_version) or parse(version) >= parse(max_version):
-                warnings.warn(f'{dep_name} bindings have been tested for versions between '
-                              f'{min_version} and {max_version} (installed: {version}).')
-        except AttributeError:
-            warnings.warn(f'{dep_name} bindings have been tested for versions between '
-                          f'{min_version} and {max_version} (installed unknown version).')
-            version = None
-        return version
-
-    _get_version('dune-xt')
-    return _get_version('dune-gdt')
-
+def _get_fenicsx_version():
+    import dolfinx as dfx
+    if not (parse('0.10') <= parse(dfx.__version__) < parse('0.11')):
+        warnings.warn(f'FEniCSx bindings have only been tested for version 0.10 '
+                      f'(installed: {dfx.__version__}).')
+    return dfx.__version__
 
 def is_windows_platform():
     return sys.platform == 'win32' or sys.platform == 'cygwin'
@@ -142,6 +128,14 @@ def _get_qt_version():
     return f'{qtpy.API_NAME} (Qt {qtpy.QT_VERSION})'
 
 
+def _get_umfpack_version():
+    try:
+        return version('scikit-umfpack')
+    except PackageNotFoundError:
+        pass
+    return False
+
+
 def is_jupyter():
     """Check if we believe to be running in a Jupyter Notebook or Lab.
 
@@ -161,8 +155,8 @@ def is_jupyter():
 
 _PACKAGES = {
     'DEALII': _get_version('pymor_dealii'),
-    'DUNEGDT': _get_dunegdt_version,
     'FENICS': _get_fenics_version,
+    'FENICSX': _get_fenicsx_version,
     'GL': lambda: import_module('OpenGL.GL') and import_module('OpenGL').__version__,
     'IPYPARALLEL': _get_version('ipyparallel'),
     'IPYTHON': _get_version('IPython'),
@@ -178,11 +172,13 @@ _PACKAGES = {
     'QTOPENGL': lambda: bool(_get_qt_version() and import_module('qtpy.QtOpenGL')),
     'SCIKIT_FEM': _get_version('skfem'),
     'SCIPY': _get_version('scipy', True),
+    'SKLEARN': _get_version('sklearn', True),
     'SLYCOT': _get_slycot_version,
     'SPHINX': _get_version('sphinx'),
     'TORCH': _get_version('torch', True),
     'THREADPOOLCTL': _get_version('threadpoolctl'),
     'TYPER': _get_version('typer'),
+    'UMFPACK': _get_umfpack_version,
     'VTKIO': lambda: _can_import(('meshio', 'pyevtk', 'lxml', 'xmljson')),
 }
 
@@ -203,6 +199,8 @@ class Config:
         if not getattr(self, f'HAVE_{dependency}'):
             if dependency == 'QT':
                 raise QtMissingError
+            elif dependency == 'SKLEARN':
+                raise SklearnMissingError
             elif dependency == 'TORCH':
                 raise TorchMissingError
             else:
@@ -290,6 +288,10 @@ External Packages
 Defaults
 --------
 See pymor.core.defaults.print_defaults.
+
+Caching
+-------
+See pymor.core.cache.print_cached_methods.
 """[1:]
         return info
 

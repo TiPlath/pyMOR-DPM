@@ -10,7 +10,6 @@ import scipy.linalg as spla
 from pymor.algorithms.basic import almost_equal
 from pymor.algorithms.projection import project
 from pymor.algorithms.to_matrix import to_matrix
-from pymor.core.config import config
 from pymor.core.exceptions import InversionError, LinAlgError
 from pymor.operators.block import BlockDiagonalOperator
 from pymor.operators.constructions import (
@@ -28,6 +27,7 @@ from pymor.operators.numpy import (
     NumpyMatrixOperator,
 )
 from pymor.parameters.functionals import ExpressionParameterFunctional, GenericParameterFunctional
+from pymor.solvers.least_squares import QRLeastSquaresSolver
 from pymor.vectorarrays.block import BlockVectorSpace
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 from pymortests.base import assert_all_almost_equal
@@ -342,6 +342,10 @@ def test_H(operator_with_arrays):
 def test_apply_inverse(operator_with_arrays):
     op, mu, _, V = operator_with_arrays
     for ind in valid_inds(V):
+        if op.source.dim != op.range.dim and (op.solver is None or not op.solver.least_squares):
+            with pytest.raises(AssertionError):
+                U = op.apply_inverse(V[ind], mu=mu)
+            continue
         try:
             U = op.apply_inverse(V[ind], mu=mu)
         except InversionError:
@@ -358,6 +362,10 @@ def test_apply_inverse_adjoint(operator_with_arrays):
         return
     for ind in valid_inds(U):
         if len(U[ind]) == 0:
+            continue
+        if op.source.dim != op.range.dim and (op.solver is None or not op.solver.least_squares):
+            with pytest.raises(AssertionError):
+                V = op.apply_inverse_adjoint(U[ind], mu=mu)
             continue
         try:
             V = op.apply_inverse_adjoint(U[ind], mu=mu)
@@ -395,6 +403,9 @@ def test_assemble(operator_with_arrays):
         ATV = None
     if ATV is not None:
         assert np.all(almost_equal(aop.apply_adjoint(V), ATV))
+
+    if op.source.dim != op.range.dim:
+        return
 
     try:
         AIV = op.apply_inverse(V, mu=mu)
@@ -448,6 +459,8 @@ def test_restricted_jacobian(operator_with_arrays, rng):
 
 def test_InverseOperator(operator_with_arrays):
     op, mu, U, V = operator_with_arrays
+    if op.source.dim != op.range.dim:
+        return
     inv = InverseOperator(op)
     rtol = atol = 1e-12
     try:
@@ -474,6 +487,8 @@ def test_InverseOperator(operator_with_arrays):
 def test_InverseAdjointOperator(operator_with_arrays):
     op, mu, U, V = operator_with_arrays
     if not op.linear:
+        return
+    if op.source.dim != op.range.dim:
         return
     inv = InverseAdjointOperator(op)
     rtol = atol = 1e-12
@@ -515,7 +530,7 @@ def test_vectorarray_op_apply_inverse_lstsq(rng):
     O = rng.random((5, 3))
     op = VectorArrayOperator(NumpyVectorSpace.make_array(O))
     V = op.range.random()
-    U = op.apply_inverse(V, least_squares=True)
+    U = op.apply_inverse(V, solver=QRLeastSquaresSolver())
     v = V.to_numpy()
     u = spla.lstsq(O, v.ravel())[0]
     assert np.all(almost_equal(U, U.space.from_numpy(u)))
@@ -526,7 +541,7 @@ def test_adjoint_vectorarray_op_apply_inverse_lstsq(rng):
     O = rng.random((5, 3))
     op = VectorArrayOperator(NumpyVectorSpace.make_array(O), adjoint=True)
     V = op.range.random()
-    U = op.apply_inverse(V, least_squares=True)
+    U = op.apply_inverse(V, solver=QRLeastSquaresSolver('source'))
     v = V.to_numpy()
     u = spla.lstsq(O.T, v.ravel())[0]
     assert np.all(almost_equal(U, U.space.from_numpy(u)))
@@ -555,29 +570,21 @@ def test_issue_1276():
     B.apply_inverse(v)
 
 
-if config.HAVE_DUNEGDT:
-    from dune.xt.la import IstlSparseMatrix, SparsityPatternDefault
+@pytest.mark.builtin
+def test_vector_array_to_selection_operator():
+    from pymor.operators.constructions import vector_array_to_selection_operator
+    from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-    from pymor.bindings.dunegdt import DuneXTMatrixOperator
+    vs = NumpyVectorSpace(8)
+    v = vs.random(10)
 
-    def make_dunegdt_identity(N):
-        pattern = SparsityPatternDefault(N)
-        for n in range(N):
-            pattern.insert(n, n)
-        pattern.sort()
-        mat = IstlSparseMatrix(N, N, pattern)
-        for n in range(N):
-            mat.set_entry(n, n, 1.)
-        return DuneXTMatrixOperator(mat)
+    so = vector_array_to_selection_operator(v, initial_time=0., end_time=1.)
+    assert_all_almost_equal(so.as_range_array(so.parameters.parse({'t': 0.})), v[0], rtol=1e-13)
+    assert_all_almost_equal(so.as_range_array(so.parameters.parse({'t': 1.})), v[-1], rtol=1e-13)
+    assert_all_almost_equal(so.as_range_array(so.parameters.parse({'t': 0.5})), v[4], rtol=1e-13)
 
-    def test_dunegdt_identiy_apply():
-        op = make_dunegdt_identity(4)
-        U = op.source.ones(1)
-        V = op.apply(U)
-        assert (U - V).sup_norm() < 1e-14
-
-    def test_dunegdt_identiy_apply_inverse():
-        op = make_dunegdt_identity(4)
-        V = op.source.ones(1)
-        U = op.apply_inverse(V)
-        assert (U - V).sup_norm() < 1e-14
+    time_instances = np.linspace(0., 1., 9)
+    so = vector_array_to_selection_operator(v, time_instances=time_instances)
+    assert_all_almost_equal(so.as_range_array(so.parameters.parse({'t': -0.1})), v[0], rtol=1e-13)
+    assert_all_almost_equal(so.as_range_array(so.parameters.parse({'t': 0.5})), v[4], rtol=1e-13)
+    assert_all_almost_equal(so.as_range_array(so.parameters.parse({'t': 1.1})), v[-1], rtol=1e-13)

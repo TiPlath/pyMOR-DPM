@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # This file is part of the pyMOR project (https://www.pymor.org).
 # Copyright pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
@@ -31,7 +30,7 @@ def main(
         'disk',
         help='Name of cache region to use for caching solution snapshots.'
     ),
-    ei_alg: Choices('ei_greedy deim') = Option('ei_greedy', help='Interpolation algorithm to use.'),
+    ei_alg: Choices('ei_greedy deim qdeim') = Option('ei_greedy', help='Interpolation algorithm to use.'),
     grid: int = Option(60, help='Use grid with (2*NI)*NI elements.'),
     grid_type: Choices('rect tria') = Option('rect', help='Type of grid to use.'),
     initial_data: Choices('sin bump') = Option('sin', help='Select the initial data (sin, bump).'),

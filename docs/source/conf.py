@@ -33,8 +33,8 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.coverage',
               'sphinx.ext.autosummary',
               'sphinx.ext.linkcode',
+              'sphinx.ext.napoleon',
               'sphinx.ext.intersphinx',
-              'pymordocstring',
               'try_on_binder',
               'myst_nb',
               'sphinx.ext.mathjax',
@@ -134,6 +134,7 @@ nitpick_ignore = [
     ('py:obj', 'k3d.plot.Plot'),
     ('py:obj', 'qtpy.QtWidgets.QOpenGLWidget'),
     ('py:obj', 'qtpy.QtWidgets.QWidget'),
+    ('py:class', 'F'),
 ]
 nitpick_ignore_regex = [
     ('py:class', 'Choices(.+)'),  # pymor.tools.typer.Choices(...) cannot be referred to
@@ -271,14 +272,9 @@ autosummary_generate = glob.glob('generated/*.rst')
 # -----------------------------------------------------------------------------
 # Coverage checker
 # -----------------------------------------------------------------------------
-coverage_ignore_modules = r"""
-    """.split()
-coverage_ignore_functions = r"""
-    test($|_) (some|all)true bitwise_not cumproduct pkgload
-    generic\.
-    """.split()
-coverage_ignore_classes = r"""
-    """.split()
+coverage_ignore_modules = []
+coverage_ignore_functions = [r'test($|_)', r'(some|all)true', r'bitwise_not', r'cumproduct', r'pkgload', r'generic\.']
+coverage_ignore_classes = []
 
 coverage_c_path = []
 coverage_c_regexes = {}
@@ -329,3 +325,5 @@ suppress_warnings = ['autoapi', 'config.cache']
 autoapi_template_dir = this_dir / '_templates' / 'autoapi'
 autoapi_member_order = 'groupwise'
 autoapi_options = ['show-inheritance', 'members', 'undoc-members']
+
+napoleon_use_rtype = False

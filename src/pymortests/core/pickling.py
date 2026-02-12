@@ -7,35 +7,22 @@ from types import FunctionType, MethodType
 import numpy as np
 from scipy.sparse import issparse
 
+from pymor.bindings.scipy import ScipyLUSolveSolver, ScipySpSolveSolver
 from pymor.core.base import BasicObject
-from pymor.core.config import config
 from pymor.core.pickle import PicklingError, dumps, dumps_function, loads
 from pymor.discretizers.builtin.grids.subgrid import SubGrid
 from pymor.operators.numpy import NumpyMatrixBasedOperator
 from pymor.parameters.base import ParametricObject
 
 is_equal_ignored_attributes = \
-    ((SubGrid, {'_uid', '_CacheableObject__cache_region', '_SubGrid__parent_grid'}),
+    ((ScipyLUSolveSolver, {'_lu_factors'}),
+     (ScipySpSolveSolver, {'_factorizations'}),
+     (SubGrid, {'_uid', '_CacheableObject__cache_region', '_SubGrid__parent_grid'}),
      (NumpyMatrixBasedOperator, {'_uid', '_CacheableObject__cache_region', '_parameters', '_assembled_operator'}),
      (ParametricObject, {'_name', '_uid', '_CacheableObject__cache_region', '_parameters'}),
-     (BasicObject, {'_name', '_uid', '_CacheableObject__cache_region'}))
+     (BasicObject, {'_name', '_uid', '_CacheableObject__cache_region'}),)
 
 is_equal_dispatch_table = {}
-
-if config.HAVE_DUNEGDT:
-    from dune.xt.la import IstlVector
-
-    def _assert_IstlVector_equal(first, second):
-        if not isinstance(first, IstlVector):
-            return False
-        if not isinstance(second, IstlVector):
-            return False
-        if len(first) != len(second):
-            return False
-        assert_is_equal(np.array(first, copy=False), np.array(second, copy=False))
-        return True
-
-    is_equal_dispatch_table[IstlVector] = _assert_IstlVector_equal
 
 
 def func_with_closure_generator():
@@ -77,7 +64,7 @@ def assert_is_equal(first, second):
         if isinstance(first, np.ndarray):
             if first.dtype == object:
                 assert first.shape == second.shape
-                [_assert_is_equal(f, s) for f, s in zip(first.ravel(), second.ravel())]
+                [_assert_is_equal(f, s) for f, s in zip(first.ravel(), second.ravel(), strict=True)]
             else:
                 assert np.all(first == second)
         elif issparse(first):
@@ -86,9 +73,9 @@ def assert_is_equal(first, second):
                 return not ne
             else:
                 assert not np.any(ne.data)
-        elif isinstance(first, (list, tuple)):
+        elif isinstance(first, list | tuple):
             assert len(first) == len(second)
-            for u, v in zip(first, second):
+            for u, v in zip(first, second, strict=True):
                 _assert_is_equal(u, v)
         elif isinstance(first, dict):
             assert set(first.keys()) == set(second.keys())

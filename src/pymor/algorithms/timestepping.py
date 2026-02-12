@@ -16,6 +16,7 @@ the time-steppers used by |InstationaryModel|.
 import numpy as np
 
 from pymor.core.base import ImmutableObject, abstractmethod
+from pymor.operators.constructions import vector_array_to_selection_operator
 from pymor.operators.interface import Operator
 from pymor.parameters.base import Mu
 from pymor.vectorarrays.interface import VectorArray
@@ -69,8 +70,11 @@ class TimeStepper(ImmutableObject):
         operator
             The |Operator| A.
         rhs
-            The right-hand side F (either |VectorArray| of length 1 or |Operator| with
-            `source.dim == 1`). If `None`, zero right-hand side is assumed.
+            The right-hand side. Either a vector-like |Operator| with `source.dim == 1` or a
+            |VectorArray|. If the |VectorArray| contains more than one vector,
+            :func:`~pymor.operators.constructions.vector_array_to_selection_operator` is used to
+            convert the array to an |Operator| that is piecewise constant in time. If `None`, zero
+            right-hand side is assumed.
         mass
             The |Operator| M. If `None`, the identity operator is assumed.
         mu
@@ -119,8 +123,11 @@ class TimeStepper(ImmutableObject):
         operator
             The |Operator| A.
         rhs
-            The right-hand side F (either |VectorArray| of length 1 or |Operator| with
-            `source.dim == 1`). If `None`, zero right-hand side is assumed.
+            The right-hand side. Either a vector-like |Operator| with `source.dim == 1` or a
+            |VectorArray|. If the |VectorArray| contains more than one vector,
+            :func:`~pymor.operators.constructions.vector_array_to_selection_operator` is used to
+            convert the array to an |Operator| that is piecewise constant in time. If `None`, zero
+            right-hand side is assumed.
         mass
             The |Operator| M. If `None`, the identity operator is assumed.
         mu
@@ -151,14 +158,11 @@ class ImplicitEulerTimeStepper(TimeStepper):
     ----------
     nt
         The number of time-steps the time-stepper will perform.
-    solver_options
-        The |solver_options| used to invert `M + dt*A`.
-        The special values `'mass'` and `'operator'` are
-        recognized, in which case the solver_options of
-        M (resp. A) are used.
+    solver
+        The |Solver| for each time step.
     """
 
-    def __init__(self, nt, solver_options='operator'):
+    def __init__(self, nt, solver=None):
         self.__auto_init(locals())
 
     def estimate_time_step_count(self, initial_time, end_time):
@@ -167,8 +171,8 @@ class ImplicitEulerTimeStepper(TimeStepper):
     def iterate(self, initial_time, end_time, initial_data, operator, rhs=None, mass=None, mu=None, num_values=None):
         A, F, M, U0, t0, t1, nt = operator, rhs, mass, initial_data, initial_time, end_time, self.nt
         assert isinstance(A, Operator)
-        assert isinstance(F, (type(None), Operator, VectorArray))
-        assert isinstance(M, (type(None), Operator))
+        assert isinstance(F, type(None) | Operator | VectorArray)
+        assert isinstance(M, type(None) | Operator)
         assert A.source == A.range
 
         if mu is None:
@@ -187,6 +191,9 @@ class ImplicitEulerTimeStepper(TimeStepper):
             F_time_dep = _depends_on_time(F, mu)
             if not F_time_dep:
                 dt_F = F.as_vector(mu) * dt
+        elif isinstance(F, VectorArray) and len(F) > 1:
+            F_time_dep = True
+            F = vector_array_to_selection_operator(F, initial_time=initial_time, end_time=end_time)
         else:
             assert len(F) == 1
             assert F in A.range
@@ -205,10 +212,7 @@ class ImplicitEulerTimeStepper(TimeStepper):
         num_ret_values = 1
         yield U0, t0
 
-        options = (A.solver_options if self.solver_options == 'operator' else
-                   M.solver_options if self.solver_options == 'mass' else
-                   self.solver_options)
-        M_dt_A = (M + A * dt).with_(solver_options=options)
+        M_dt_A = (M + A * dt)
         if not _depends_on_time(M_dt_A, mu):
             M_dt_A = M_dt_A.assemble(mu)
 
@@ -225,7 +229,7 @@ class ImplicitEulerTimeStepper(TimeStepper):
                 dt_F = F.as_vector(mu_t) * dt
             if F:
                 rhs += dt_F
-            U = M_dt_A.apply_inverse(rhs, mu=mu_t, initial_guess=U)
+            U = M_dt_A.apply_inverse(rhs, mu=mu_t, initial_guess=U, solver=self.solver)
             while sign * (t - t0 + sign*(min(sign*dt, sign*DT) * 0.5)) >= sign * (num_ret_values * DT):
                 num_ret_values += 1
                 yield U, t
@@ -258,7 +262,7 @@ class ExplicitEulerTimeStepper(TimeStepper):
             raise NotImplementedError
         A, F, U0, t0, t1, nt = operator, rhs, initial_data, initial_time, end_time, self.nt
         assert isinstance(A, Operator)
-        assert F is None or isinstance(F, (Operator, VectorArray))
+        assert F is None or isinstance(F, Operator | VectorArray)
         assert A.source == A.range
 
         if mu is None:
@@ -273,6 +277,9 @@ class ExplicitEulerTimeStepper(TimeStepper):
             F_time_dep = _depends_on_time(F, mu)
             if not F_time_dep:
                 F_ass = F.as_vector(mu)
+        elif isinstance(F, VectorArray) and len(F) > 1:
+            F_time_dep = True
+            F = vector_array_to_selection_operator(F, initial_time=initial_time, end_time=end_time)
         elif isinstance(F, VectorArray):
             assert len(F) == 1
             assert F in A.range
@@ -330,14 +337,11 @@ class ImplicitMidpointTimeStepper(TimeStepper):
     ----------
     nt
         The number of time-steps the time-stepper will perform.
-    solver_options
-        The |solver_options| used to invert `M - dt/2*A`.
-        The special values `'mass'` and `'operator'` are
-        recognized, in which case the solver_options of
-        M (resp. A) are used.
+    solver
+        The |Solver| for each time step.
     """
 
-    def __init__(self, nt, solver_options='operator'):
+    def __init__(self, nt, solver=None):
         self.__auto_init(locals())
 
     def estimate_time_step_count(self, initial_time, end_time):
@@ -348,8 +352,8 @@ class ImplicitMidpointTimeStepper(TimeStepper):
             raise NotImplementedError
         A, F, M, U0, t0, t1, nt = operator, rhs, mass, initial_data, initial_time, end_time, self.nt
         assert isinstance(A, Operator)
-        assert isinstance(F, (type(None), Operator, VectorArray))
-        assert isinstance(M, (type(None), Operator))
+        assert isinstance(F, type(None) | Operator | VectorArray)
+        assert isinstance(M, type(None) | Operator)
         assert A.source == A.range
 
         if mu is None:
@@ -368,6 +372,9 @@ class ImplicitMidpointTimeStepper(TimeStepper):
             F_time_dep = _depends_on_time(F, mu)
             if not F_time_dep:
                 dt_F = F.as_vector(mu) * dt
+        elif isinstance(F, VectorArray) and len(F) > 1:
+            F_time_dep = True
+            F = vector_array_to_selection_operator(F, initial_time=initial_time, end_time=end_time)
         else:
             assert len(F) == 1
             assert F in A.range
@@ -386,17 +393,10 @@ class ImplicitMidpointTimeStepper(TimeStepper):
         num_ret_values = 1
         yield U0, t0
 
-        if self.solver_options == 'operator':
-            options = A.solver_options
-        elif self.solver_options == 'mass':
-            options = M.solver_options
-        else:
-            options = self.solver_options
-
-        M_dt_A_impl = (M + A * (dt/2)).with_(solver_options=options)
+        M_dt_A_impl = (M + A * (dt/2))
         if not _depends_on_time(M_dt_A_impl, mu):
             M_dt_A_impl = M_dt_A_impl.assemble(mu)
-        M_dt_A_expl = (M - A * (dt/2)).with_(solver_options=options)
+        M_dt_A_expl = (M - A * (dt/2))
         if not _depends_on_time(M_dt_A_expl, mu):
             M_dt_A_expl = M_dt_A_expl.assemble(mu)
 
@@ -413,7 +413,7 @@ class ImplicitMidpointTimeStepper(TimeStepper):
                 dt_F = F.as_vector(mu_t) * dt
             if F:
                 rhs += dt_F
-            U = M_dt_A_impl.apply_inverse(rhs, mu=mu_t)
+            U = M_dt_A_impl.apply_inverse(rhs, mu=mu_t, solver=self.solver)
             while sign * (t - t0 + sign*(min(sign*dt, sign*DT) * 0.5)) >= sign * (num_ret_values * DT):
                 num_ret_values += 1
                 yield U, t
@@ -439,8 +439,8 @@ class DiscreteTimeStepper(TimeStepper):
     def iterate(self, initial_time, end_time, initial_data, operator, rhs=None, mass=None, mu=None, num_values=None):
         A, F, M, U0, k0, k1 = operator, rhs, mass, initial_data, initial_time, end_time
         assert isinstance(A, Operator)
-        assert isinstance(F, (type(None), Operator, VectorArray))
-        assert isinstance(M, (type(None), Operator))
+        assert isinstance(F, type(None) | Operator | VectorArray)
+        assert isinstance(M, type(None) | Operator)
         assert A.source == A.range
 
         if mu is None:
@@ -461,6 +461,9 @@ class DiscreteTimeStepper(TimeStepper):
             F_time_dep = _depends_on_time(F, mu)
             if not F_time_dep:
                 Fk = F.as_vector(mu)
+        elif isinstance(F, VectorArray) and len(F) > 1:
+            F_time_dep = True
+            F = vector_array_to_selection_operator(F, initial_time=initial_time, end_time=end_time)
         else:
             assert len(F) == 1
             assert F in A.range

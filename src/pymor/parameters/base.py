@@ -68,10 +68,10 @@ class Parameters(SortedFrozenDict):
                 assert all(check_dims(param, parameters.get(param), dim)
                            for param, dim in obj.parameters.items())
                 parameters.update(obj.parameters)
-            elif isinstance(obj, (list, tuple)):
+            elif isinstance(obj, list | tuple):
                 for o in obj:
                     traverse(o)
-            elif isinstance(obj, (dict, FrozenDict)):
+            elif isinstance(obj, dict | FrozenDict):
                 for o in obj.values():
                     traverse(o)
             elif isinstance(obj, np.ndarray) and obj.dtype == object:
@@ -132,7 +132,7 @@ class Parameters(SortedFrozenDict):
             mu = []
 
         # convert mu to dict
-        if isinstance(mu, (Number, str, Function)):
+        if isinstance(mu, Number | str | Function):
             mu = [mu]
 
         def convert_to_function(v):
@@ -147,10 +147,10 @@ class Parameters(SortedFrozenDict):
                      f'    {v}')
             return f
 
-        if isinstance(mu, (tuple, list, np.ndarray)):
+        if isinstance(mu, tuple | list | np.ndarray):
             if isinstance(mu, np.ndarray):
                 mu = mu.ravel()
-            all(isinstance(v, (Number, str, Function)) for v in mu) or \
+            all(isinstance(v, Number | str | Function) for v in mu) or \
                 fail('not every element a number or function')
 
             # first convert all strings to functions to get their shape
@@ -184,7 +184,7 @@ class Parameters(SortedFrozenDict):
                 v = v.ravel()
                 len(v) == self[k] or fail(f'wrong dimension of parameter value {k}')
                 return v
-            elif isinstance(v, (str, Function)):
+            elif isinstance(v, str | Function):
                 v = convert_to_function(v)
 
                 # convert scalar-valued functions to functions 1D shape_range
@@ -194,8 +194,8 @@ class Parameters(SortedFrozenDict):
                 len(v.shape_range) == 1 or fail(f'wrong shape_range of parameter function {k}')
                 v.shape_range[0] == self[k] or fail(f'wrong range dimension of parameter function {k}')
                 return v
-            elif isinstance(v, (tuple, list)):
-                all(isinstance(vv, (Number, str, Function)) for vv in v) or \
+            elif isinstance(v, tuple | list):
+                all(isinstance(vv, Number | str | Function) for vv in v) or \
                     fail(f"invalid value type '{type(v)}' for parameter {k}")
                 v = [convert_to_function(vv) for vv in v]
                 if any(isinstance(vv, Function) for vv in v):
@@ -361,11 +361,12 @@ class Mu(ImmutableObject):
 
     Parameters
     ----------
-    Anything that dict accepts for the construction of a dictionary.
-    Values are automatically converted to one-dimensional |NumPy arrays|,
-    except for |Functions|, which are interpreted as time-dependent parameter
-    values. Unless the Python interpreter runs with the `-O` flag,
-    the arrays are made immutable.
+    *args
+        Anything that dict accepts for the construction of a dictionary.
+        Values are automatically converted to one-dimensional |NumPy arrays|,
+        except for |Functions|, which are interpreted as time-dependent parameter
+        values. Unless the Python interpreter runs with the `-O` flag,
+        the arrays are made immutable.
 
 
     Attributes
@@ -373,6 +374,8 @@ class Mu(ImmutableObject):
     time_dependent_values
         Immutable mapping from parameter names to |Functions| of time.
     """
+
+    _hash = None
 
     def __init__(self, *args, **kwargs):
         values = {}
@@ -486,6 +489,11 @@ class Mu(ImmutableObject):
         return self.keys() == other.keys() \
             and all(np.array_equal(v, other[k]) for k, v in self.items()) \
             and self.time_dependent_values == other.time_dependent_values
+
+    def __hash__(self):
+        if self._hash is None:
+            self._hash = sum(hash(v.tobytes()) for v in self.values())
+        return self._hash
 
     def __str__(self):
         def format_value(k, v):
@@ -637,9 +645,9 @@ class ParameterSpace(ParametricObject):
         assert 1 <= len(ranges) <= 2
         if len(ranges) == 1:
             ranges = ranges[0]
-        if isinstance(ranges, (tuple, list)):
+        if isinstance(ranges, tuple | list):
             assert len(ranges) == 2
-            ranges = {k: ranges for k in parameters}
+            ranges = dict.fromkeys(parameters, ranges)
         assert isinstance(ranges, dict)
         assert all(k in ranges
                    and len(ranges[k]) == 2
@@ -670,13 +678,13 @@ class ParameterSpace(ParametricObject):
         List of |parameter value| dicts.
         """
         if not isinstance(counts, dict):
-            counts = {k: counts for k in self.parameters}
+            counts = dict.fromkeys(self.parameters, counts)
 
         linspaces = tuple(np.linspace(self.ranges[k][0], self.ranges[k][1], num=counts[k])
                           for k in self.parameters)
         iters = tuple(product(linspace, repeat=size)
-                      for linspace, size in zip(linspaces, self.parameters.values()))
-        unconstrained_mus = (Mu((k, np.array(v)) for k, v in zip(self.parameters, i))
+                      for linspace, size in zip(linspaces, self.parameters.values(), strict=True))
+        unconstrained_mus = (Mu((k, np.array(v)) for k, v in zip(self.parameters, i, strict=True))
                              for i in product(*iters))
         if self.constraints:
             constraints = self.constraints
@@ -736,13 +744,13 @@ class ParameterSpace(ParametricObject):
         List of |parameter value| dicts.
         """
         if not isinstance(counts, dict):
-            counts = {k: counts for k in self.parameters}
+            counts = dict.fromkeys(self.parameters, counts)
 
         logspaces = tuple(np.geomspace(self.ranges[k][0], self.ranges[k][1], num=counts[k])
                           for k in self.parameters)
         iters = tuple(product(logspace, repeat=size)
-                      for logspace, size in zip(logspaces, self.parameters.values()))
-        unconstrained_mus = (Mu((k, np.array(v)) for k, v in zip(self.parameters, i))
+                      for logspace, size in zip(logspaces, self.parameters.values(), strict=True))
+        unconstrained_mus = (Mu((k, np.array(v)) for k, v in zip(self.parameters, i, strict=True))
                              for i in product(*iters))
         if self.constraints:
             constraints = self.constraints

@@ -20,9 +20,6 @@ class MPIPool(WorkerPoolBase):
         self._apply(os.chdir, os.getcwd())
         self._map(_setup_rng, [[[s] for s in get_seed_seq().spawn(mpi.size)]])
 
-    def __del__(self):
-        mpi.call(mpi.remove_object, self._payload)
-
     def __len__(self):
         return mpi.size
 
@@ -51,7 +48,7 @@ class MPIPool(WorkerPoolBase):
         return result
 
     def _remove_object(self, remote_id):
-        mpi.call(mpi.remove_object, remote_id)
+        pass  # handled by obj_id going out of scope
 
 
 def _worker_call_function(function, *args, **kwargs):
@@ -78,10 +75,10 @@ def _single_worker_call_function(payload, worker):
 def _worker_map_function(payload, function, **kwargs):
 
     if mpi.rank0:
-        args = list(zip(*payload[0]))
+        args = list(zip(*payload[0], strict=True))
     else:
         args = None
-    args = zip(*mpi.comm.scatter(args, root=0))
+    args = zip(*mpi.comm.scatter(args, root=0), strict=True)
 
     result = [mpi.function_call(function, *a, **kwargs) for a in args]
     result = mpi.comm.gather(result, root=0)

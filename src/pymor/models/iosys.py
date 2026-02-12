@@ -116,6 +116,8 @@ class LTIModel(Model):
         :math:`\mathcal{H}_\infty/\mathcal{L}_\infty` norm is attained can be preset with `fpeak`.
     solver_options
         The solver options to use to solve matrix equations.
+    shifted_system_solver
+        The |Solver| for the shifted systems arising in transfer function evaluation.
     ast_pole_data
         Used in :meth:`get_ast_spectrum`. Can be:
 
@@ -163,7 +165,7 @@ class LTIModel(Model):
 
     def __init__(self, A, B, C, D=None, E=None, sampling_time=0,
                  T=None, initial_data=None, time_stepper=None, num_values=None, presets=None,
-                 solver_options=None, ast_pole_data=None,
+                 solver_options=None, shifted_system_solver=None, ast_pole_data=None,
                  error_estimator=None, visualizer=None, name=None):
 
         assert A.linear
@@ -230,7 +232,7 @@ class LTIModel(Model):
         parameters = Parameters.of(self.A, self.B, self.C, self.D, self.E)
         s = ProjectionParameterFunctional('s')
 
-        K = s * self.E - self.A
+        K = (s * self.E - self.A).with_(solver=shifted_system_solver)
         B = self.B
         C = self.C
         D = self.D
@@ -265,7 +267,8 @@ class LTIModel(Model):
     @classmethod
     def from_matrices(cls, A, B, C, D=None, E=None, sampling_time=0,
                       T=None, initial_data=None, time_stepper=None, num_values=None, presets=None,
-                      solver_options=None, error_estimator=None, visualizer=None, name=None):
+                      solver_options=None, shifted_system_solver=None, error_estimator=None,
+                      visualizer=None, name=None):
         """Create |LTIModel| from matrices.
 
         Parameters
@@ -299,6 +302,8 @@ class LTIModel(Model):
             See |LTIModel|.
         solver_options
             The solver options to use to solve the Lyapunov equations.
+        shifted_system_solver
+            The |Solver| for the shifted systems arising in transfer function evaluation.
         error_estimator
             An error estimator for the problem. This can be any object with an
             `estimate_error(U, mu, model)` method. If `error_estimator` is not `None`, an
@@ -316,12 +321,12 @@ class LTIModel(Model):
         lti
             The |LTIModel| with operators A, B, C, D, and E.
         """
-        assert isinstance(A, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(B, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(C, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(D, (np.ndarray, sps.spmatrix, sparray, type(None)))
-        assert isinstance(E, (np.ndarray, sps.spmatrix, sparray, type(None)))
-        assert isinstance(initial_data, (np.ndarray, type(None)))
+        assert isinstance(A, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(B, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(C, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(D, np.ndarray | sps.spmatrix | sparray | type(None))
+        assert isinstance(E, np.ndarray | sps.spmatrix | sparray | type(None))
+        assert isinstance(initial_data, np.ndarray | type(None))
 
         A = NumpyMatrixOperator(A)
         B = NumpyMatrixOperator(B)
@@ -335,7 +340,8 @@ class LTIModel(Model):
 
         return cls(A, B, C, D, E, sampling_time=sampling_time, T=T, initial_data=initial_data,
                    time_stepper=time_stepper, num_values=num_values, presets=presets,
-                   solver_options=solver_options, error_estimator=error_estimator, visualizer=visualizer, name=name)
+                   solver_options=solver_options, shifted_system_solver=shifted_system_solver,
+                   error_estimator=error_estimator, visualizer=visualizer, name=name)
 
     def to_matrices(self, format=None, mu=None):
         """Return operators as matrices.
@@ -401,7 +407,7 @@ class LTIModel(Model):
     @classmethod
     def from_files(cls, A_file, B_file, C_file, D_file=None, E_file=None, sampling_time=0,
                    T=None, initial_data_file=None, time_stepper=None, num_values=None, presets=None,
-                   solver_options=None, error_estimator=None, visualizer=None, name=None):
+                   solver_options=None, shifted_system_solver=None, error_estimator=None, visualizer=None, name=None):
         """Create |LTIModel| from matrices stored in separate files.
 
         Parameters
@@ -435,6 +441,8 @@ class LTIModel(Model):
             See |LTIModel|.
         solver_options
             The solver options to use to solve the Lyapunov equations.
+        shifted_system_solver
+            The |Solver| for the shifted systems arising in transfer function evaluation.
         error_estimator
             An error estimator for the problem. This can be any object with an
             `estimate_error(U, mu, model)` method. If `error_estimator` is not `None`, an
@@ -463,7 +471,8 @@ class LTIModel(Model):
 
         return cls.from_matrices(A, B, C, D, E, sampling_time=sampling_time, T=T, initial_data=initial_data,
                                  time_stepper=time_stepper, num_values=num_values, presets=presets,
-                                 solver_options=solver_options, error_estimator=error_estimator, visualizer=visualizer,
+                                 solver_options=solver_options, shifted_system_solver=shifted_system_solver,
+                                 error_estimator=error_estimator, visualizer=visualizer,
                                  name=name)
 
     def to_files(self, A_file, B_file, C_file, D_file=None, E_file=None, mu=None):
@@ -500,7 +509,8 @@ class LTIModel(Model):
 
     @classmethod
     def from_mat_file(cls, file_name, sampling_time=0, T=None, time_stepper=None, num_values=None, presets=None,
-                      solver_options=None, error_estimator=None, visualizer=None, name=None):
+                      solver_options=None, shifted_system_solver=None, error_estimator=None, visualizer=None,
+                      name=None):
         """Create |LTIModel| from matrices stored in a .mat file.
 
         Supports the format used in the `SLICOT benchmark collection
@@ -527,6 +537,8 @@ class LTIModel(Model):
             See |LTIModel|.
         solver_options
             The solver options to use to solve the Lyapunov equations.
+        shifted_system_solver
+            The |Solver| for the shifted systems arising in transfer function evaluation.
         error_estimator
             An error estimator for the problem. This can be any object with an
             `estimate_error(U, mu, model)` method. If `error_estimator` is not `None`, an
@@ -566,7 +578,8 @@ class LTIModel(Model):
 
         return cls.from_matrices(*matrices, sampling_time=sampling_time, T=T, time_stepper=time_stepper,
                                  num_values=num_values, presets=presets,
-                                 solver_options=solver_options, error_estimator=error_estimator, visualizer=visualizer,
+                                 solver_options=solver_options, shifted_system_solver=shifted_system_solver,
+                                 error_estimator=error_estimator, visualizer=visualizer,
                                  name=name)
 
     def to_mat_file(self, file_name, mu=None):
@@ -590,7 +603,8 @@ class LTIModel(Model):
 
     @classmethod
     def from_abcde_files(cls, files_basename, sampling_time=0, T=None, time_stepper=None, num_values=None, presets=None,
-                         solver_options=None, error_estimator=None, visualizer=None, name=None):
+                         solver_options=None, shifted_system_solver=None, error_estimator=None, visualizer=None,
+                         name=None):
         """Create |LTIModel| from matrices stored in .[ABCDE] files.
 
         Parameters
@@ -613,6 +627,8 @@ class LTIModel(Model):
             See |LTIModel|.
         solver_options
             The solver options to use to solve the Lyapunov equations.
+        shifted_system_solver
+            The |Solver| for the shifted systems arising in transfer function evaluation.
         error_estimator
             An error estimator for the problem. This can be any object with an
             `estimate_error(U, mu, model)` method. If `error_estimator` is not `None`, an
@@ -642,7 +658,8 @@ class LTIModel(Model):
 
         return cls.from_matrices(A, B, C, D, E, sampling_time=sampling_time, T=T, time_stepper=time_stepper,
                                  num_values=num_values, presets=presets,
-                                 solver_options=solver_options, error_estimator=error_estimator, visualizer=visualizer,
+                                 solver_options=solver_options, shifted_system_solver=shifted_system_solver,
+                                 error_estimator=error_estimator, visualizer=visualizer,
                                  name=name)
 
     def to_abcde_files(self, files_basename, mu=None):
@@ -679,7 +696,7 @@ class LTIModel(Model):
                 0,  # initial_time
                 self.T,  # end_time
                 self.initial_data.as_range_array(mu),  # initial_data
-                -self.A,  # operator
+                (-self.A).with_(solver=self.A.solver),  # operator
                 rhs=LinearInputOperator(self.B),
                 mass=None if isinstance(self.E, IdentityOperator) else self.E,
                 mu=mu,
@@ -697,22 +714,22 @@ class LTIModel(Model):
                 data['solution'] = self.solution_space.empty(reserve=n)
             if compute_output:
                 D = LinearInputOperator(self.D)
-                data['output'] = np.empty((n, self.dim_output))
+                data['output'] = np.empty((self.dim_output, n))
                 data_output_extra = []
             for i, (x, t) in enumerate(iterator):
                 if compute_solution:
                     data['solution'].append(x)
                 if compute_output:
-                    y = self.C.apply(x, mu=mu).to_numpy().T + D.as_range_array(mu=mu.at_time(t)).to_numpy().T
+                    y = self.C.apply(x, mu=mu).to_numpy() + D.as_range_array(mu=mu.at_time(t)).to_numpy()
                     if i < n:
-                        data['output'][i] = y
+                        data['output'][:, i] = y.ravel()
                     else:
                         data_output_extra.append(y)
             if compute_output:
                 if data_output_extra:
-                    data['output'] = np.vstack((data['output'], data_output_extra))
-                if len(data['output']) < i + 1:
-                    data['output'] = data['output'][:i + 1]
+                    data['output'] = np.hstack((data['output'], data_output_extra))
+                if data['output'].shape[1] < i + 1:
+                    data['output'] = data['output'][:, :i + 1]
 
             if compute_solution:
                 quantities.remove('solution')
@@ -812,8 +829,8 @@ class LTIModel(Model):
         -------
         output
             Impulse response as a 3D |NumPy array| where
-            `output.shape[0]` is the number of time steps,
-            `output.shape[1]` is the number of outputs, and
+            `output.shape[0]` is the number of outputs, and
+            `output.shape[1]` is the number of time steps,
             `output.shape[2]` is the number of inputs.
         solution
             The tuple of solution |VectorArrays| for every input.
@@ -828,7 +845,7 @@ class LTIModel(Model):
                 n = 0
         else:
             n = self.num_values + 1
-        output = np.empty((n, self.dim_output, self.dim_input))
+        output = np.empty((self.dim_output, n, self.dim_input))
         if return_solution:
             solution = []
 
@@ -867,8 +884,8 @@ class LTIModel(Model):
         -------
         output
             Step response as a 3D |NumPy array| where
-            `output.shape[0]` is the number of time steps,
-            `output.shape[1]` is the number of outputs, and
+            `output.shape[0]` is the number of outputs, and
+            `output.shape[1]` is the number of time steps,
             `output.shape[2]` is the number of inputs.
         solution
             The tuple of solution |VectorArrays| for every input.
@@ -883,7 +900,7 @@ class LTIModel(Model):
                 n = 0
         else:
             n = self.num_values + 1
-        output = np.empty((n, self.dim_output, self.dim_input))
+        output = np.empty((self.dim_output, n, self.dim_input))
         if return_solution:
             solution = []
 
@@ -1088,7 +1105,7 @@ class LTIModel(Model):
         return gramian
 
     @cached
-    def _sv_U_V(self, typ='lyap', mu=None):
+    def _hankel_svd(self, typ='lyap', mu=None):
         """Compute (Hankel) singular values and vectors.
 
         .. note::
@@ -1109,12 +1126,12 @@ class LTIModel(Model):
 
         Returns
         -------
+        U
+            |NumPy array| of left singular vectors as columns.
         sv
             One-dimensional |NumPy array| of singular values.
-        Uh
-            |NumPy array| of left singular vectors as rows.
         Vh
-            |NumPy array| of right singular vectors as rows.
+            |NumPy array| of right singular vectors as conjugated rows.
         """
         if not isinstance(mu, Mu):
             mu = self.parameters.parse(mu)
@@ -1137,8 +1154,7 @@ class LTIModel(Model):
             of = self.gramian(('br_o_lrcf', gamma), mu=mu)
         else:
             raise ValueError(f'Unknown typ ({typ}).')
-        U, hsv, Vh = spla.svd(self.E.apply2(of, cf, mu=mu), lapack_driver=svd_lapack_driver())
-        return hsv, U.T, Vh
+        return spla.svd(self.E.apply2(of, cf, mu=mu), lapack_driver=svd_lapack_driver())
 
     def hsv(self, mu=None):
         """Hankel singular values.
@@ -1156,7 +1172,7 @@ class LTIModel(Model):
         sv
             One-dimensional |NumPy array| of singular values.
         """
-        hsv = self.presets['hsv'] if 'hsv' in self.presets else self._sv_U_V(mu=mu)[0]
+        hsv = self.presets['hsv'] if 'hsv' in self.presets else self._hankel_svd(mu=mu)[1]
         assert isinstance(hsv, np.ndarray)
         assert hsv.ndim == 1
 
@@ -1445,9 +1461,11 @@ class LTIModel(Model):
                 ast_levs = A.source.empty(reserve=len(ast_pole_data))
                 ast_revs = A.source.empty(reserve=len(ast_pole_data))
                 for ae in ast_pole_data:
-                    _, lev = eigs(A, E, k=1, l=3, sigma=ae, left_evp=True)
+                    _, lev = eigs(A, E, k=1, l=3, sigma=ae, left_evp=True,
+                                  shifted_system_solver=self.shifted_system_solver)
                     ast_levs.append(lev)
-                    _, rev = eigs(A, E, k=1, l=3, sigma=ae)
+                    _, rev = eigs(A, E, k=1, l=3, sigma=ae,
+                                  shifted_system_solver=self.shifted_system_solver)
                     ast_revs.append(rev)
                 return ast_levs, ast_pole_data, ast_revs
             elif isinstance(self.ast_pole_data, tuple):
@@ -1507,13 +1525,14 @@ class LTIModel(Model):
 
         a, b, c, d = MoebiusTransformation(M.coefficients, normalize=True).coefficients
 
-        Et = a * self.E - c * self.A
-        At = d * self.A - b * self.E
+        Et = (a * self.E - c * self.A).with_(solver=self.shifted_system_solver)
+        At = (d * self.A - b * self.E).with_(solver=self.shifted_system_solver)
         C = VectorArrayOperator(Et.apply_inverse_adjoint(self.C.H.as_range_array())).H
         Ct = C @ self.E
         Dt = self.D + c * C @ self.B
 
-        return LTIModel(At, self.B, Ct, D=Dt, E=Et, sampling_time=sampling_time)
+        return LTIModel(At, self.B, Ct, D=Dt, E=Et, sampling_time=sampling_time,
+                        shifted_system_solver=self.shifted_system_solver)
 
     def to_discrete(self, sampling_time, method='Tustin', w0=0):
         """Converts a continuous-time |LTIModel| to a discrete-time |LTIModel|.
@@ -1627,6 +1646,8 @@ class PHLTIModel(LTIModel):
         The |Operator| Q or `None` (then Q is assumed to be identity).
     solver_options
         The solver options to use to solve the Lyapunov equations.
+    shifted_system_solver
+        The |Solver| for the shifted systems arising in transfer function evaluation.
     name
         Name of the system.
 
@@ -1661,7 +1682,8 @@ class PHLTIModel(LTIModel):
     cache_region = 'memory'
 
     def __init__(self, J, R, G, P=None, S=None, N=None, E=None, Q=None,
-                 solver_options=None, error_estimator=None, visualizer=None, name=None):
+                 solver_options=None, shifted_system_solver=None,
+                 error_estimator=None, visualizer=None, name=None):
         assert J.linear
         assert J.source == J.range
 
@@ -1701,7 +1723,8 @@ class PHLTIModel(LTIModel):
                          B=G - P,
                          C=(G + P).H if isinstance(Q, IdentityOperator) else (G + P).H @ Q,
                          D=S - N, E=E,
-                         solver_options=solver_options, error_estimator=error_estimator, visualizer=visualizer,
+                         solver_options=solver_options, shifted_system_solver=shifted_system_solver,
+                         error_estimator=error_estimator, visualizer=visualizer,
                          name=name)
         self.__auto_init(locals())
 
@@ -1779,7 +1802,8 @@ class PHLTIModel(LTIModel):
 
     @classmethod
     def from_matrices(cls, J, R, G, P=None, S=None, N=None, E=None, Q=None,
-                      solver_options=None, error_estimator=None, visualizer=None, name=None):
+                      solver_options=None, shifted_system_solver=None, error_estimator=None, visualizer=None,
+                      name=None):
         """Create |PHLTIModel| from matrices.
 
         Parameters
@@ -1802,6 +1826,8 @@ class PHLTIModel(LTIModel):
             The |NumPy array| or |SciPy spmatrix| Q or `None` (then Q is assumed to be identity).
         solver_options
             The solver options to use to solve the Lyapunov equations.
+        shifted_system_solver
+            The |Solver| for the shifted systems arising in transfer function evaluation.
         error_estimator
             An error estimator for the problem. This can be any object with an
             `estimate_error(U, mu, model)` method. If `error_estimator` is not `None`, an
@@ -1819,14 +1845,14 @@ class PHLTIModel(LTIModel):
         phlti
             The |PHLTIModel| with operators J, R, G, P, S, N, and E.
         """
-        assert isinstance(J, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(R, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(G, (np.ndarray, sps.spmatrix, sparray))
-        assert P is None or isinstance(P, (np.ndarray, sps.spmatrix, sparray))
-        assert S is None or isinstance(S, (np.ndarray, sps.spmatrix, sparray))
-        assert N is None or isinstance(N, (np.ndarray, sps.spmatrix, sparray))
-        assert E is None or isinstance(E, (np.ndarray, sps.spmatrix, sparray))
-        assert Q is None or isinstance(Q, (np.ndarray, sps.spmatrix, sparray))
+        assert isinstance(J, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(R, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(G, np.ndarray | sps.spmatrix | sparray)
+        assert P is None or isinstance(P, np.ndarray | sps.spmatrix | sparray)
+        assert S is None or isinstance(S, np.ndarray | sps.spmatrix | sparray)
+        assert N is None or isinstance(N, np.ndarray | sps.spmatrix | sparray)
+        assert E is None or isinstance(E, np.ndarray | sps.spmatrix | sparray)
+        assert Q is None or isinstance(Q, np.ndarray | sps.spmatrix | sparray)
 
         J = NumpyMatrixOperator(J)
         R = NumpyMatrixOperator(R)
@@ -1843,7 +1869,8 @@ class PHLTIModel(LTIModel):
             Q = NumpyMatrixOperator(Q)
 
         return cls(J=J, R=R, G=G, P=P, S=S, N=N, E=E, Q=Q,
-                   solver_options=solver_options, error_estimator=error_estimator, visualizer=visualizer,
+                   solver_options=solver_options, shifted_system_solver=shifted_system_solver,
+                   error_estimator=error_estimator, visualizer=visualizer,
                    name=name)
 
     def to_matrices(self, format=None, mu=None):
@@ -2141,13 +2168,13 @@ class SecondOrderModel(Model):
         lti
             The SecondOrderModel with operators M, E, K, B, Cp, Cv, and D.
         """
-        assert isinstance(M, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(E, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(K, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(B, (np.ndarray, sps.spmatrix, sparray))
-        assert isinstance(Cp, (np.ndarray, sps.spmatrix, sparray))
-        assert Cv is None or isinstance(Cv, (np.ndarray, sps.spmatrix, sparray))
-        assert D is None or isinstance(D, (np.ndarray, sps.spmatrix, sparray))
+        assert isinstance(M, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(E, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(K, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(B, np.ndarray | sps.spmatrix | sparray)
+        assert isinstance(Cp, np.ndarray | sps.spmatrix | sparray)
+        assert Cv is None or isinstance(Cv, np.ndarray | sps.spmatrix | sparray)
+        assert D is None or isinstance(D, np.ndarray | sps.spmatrix | sparray)
 
         M = NumpyMatrixOperator(M)
         E = NumpyMatrixOperator(E)
@@ -2835,7 +2862,7 @@ class LinearDelayModel(Model):
         """Add to an |LTIModel|, a |SecondOrderModel|, or a |PHLTIModel|."""
         if isinstance(other, LTIModel):
             return self + other
-        elif isinstance(other, (SecondOrderModel, PHLTIModel)):
+        elif isinstance(other, SecondOrderModel | PHLTIModel):
             return self + other.to_lti()
         else:
             return NotImplemented
@@ -2846,7 +2873,7 @@ class LinearDelayModel(Model):
 
     def __rsub__(self, other):
         """Subtract from an |LTIModel| or a |SecondOrderModel|."""
-        if isinstance(other, (LTIModel, SecondOrderModel)):
+        if isinstance(other, LTIModel | SecondOrderModel):
             return -(self - other)
         else:
             return NotImplemented

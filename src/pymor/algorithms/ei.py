@@ -86,7 +86,7 @@ def ei_greedy(U, error_norm=None, atol=None, rtol=None, max_interpolation_dofs=N
     """
     assert not isinstance(error_norm, str) or error_norm == 'sup'
     if pool:  # dispatch to parallel implementation
-        assert isinstance(U, (VectorArray, RemoteObject))
+        assert isinstance(U, VectorArray | RemoteObject)
         with RemoteObjectManager() as rom:
             if isinstance(U, VectorArray):
                 U = rom.manage(pool.scatter_array(U))
@@ -264,6 +264,73 @@ def deim(U, modes=None, pod=True, atol=None, rtol=None, product=None, pod_option
     return interpolation_dofs, collateral_basis, data
 
 
+def qdeim(U, modes=None, pod=True, atol=None, rtol=None, product=None, pod_options={}):
+    """Generate data for empirical interpolation using the Q-DEIM algorithm.
+
+    Given a |VectorArray| `U`, this method generates a collateral basis and
+    interpolation DOFs for empirical interpolation of the vectors contained in `U`.
+    The returned objects can be used to instantiate an |EmpiricalInterpolatedOperator|
+    (with `triangular=False`).
+
+    The collateral basis is determined by the first :func:`~pymor.algorithms.pod.pod` modes
+    of `U`.
+
+    The intperpolation DOFs are computed using the Q-DEIM algorithm from
+    :cite:`DG16`. It leads to more stable interpolation matrices compared
+    to :meth:`ei_greedy`. However, the algorithm only works with |NumPy| data, so the
+    basis |VectorArray| needs to support the
+    :meth:`~pymor.vectorarrays.interface.VectorArray.to_numpy` method.
+
+    Parameters
+    ----------
+    U
+        A |VectorArray| of vectors to interpolate.
+    modes
+        Dimension of the collateral basis i.e. number of POD modes of the vectors in `U`.
+    pod
+        If `True`, perform a POD of `U` to obtain the collateral basis. If `False`, `U`
+        is used as collateral basis.
+    atol
+        Absolute POD tolerance.
+    rtol
+        Relative POD tolerance.
+    product
+        Inner product |Operator| used for the POD.
+    pod_options
+        Dictionary of additional options to pass to the :func:`~pymor.algorithms.pod.pod` algorithm.
+
+    Returns
+    -------
+    interpolation_dofs
+        |NumPy array| of the DOFs at which the vectors are interpolated.
+    collateral_basis
+        |VectorArray| containing the generated collateral basis.
+    data
+        Dict containing the following fields:
+
+        :svals:
+            POD singular values.
+    """
+    assert isinstance(U, VectorArray)
+
+    logger = getLogger('pymor.algorithms.ei.qdeim')
+    logger.info('Generating Interpolation Data ...')
+
+    data = {}
+
+    if pod:
+        collateral_basis, svals = pod_alg(U, modes=modes, atol=atol, rtol=rtol, product=product, **pod_options)
+        data['svals'] = svals
+    else:
+        collateral_basis = U
+
+    numpy_cb = collateral_basis.to_numpy(ensure_copy=True)
+    interpolation_dofs = \
+        spla.qr(numpy_cb.T, pivoting=True, mode='economic', overwrite_a=True)[2][:len(collateral_basis)]
+
+    return interpolation_dofs, collateral_basis, data
+
+
 def interpolate_operators(fom, operator_names, parameter_sample, error_norm=None,
                           product=None, atol=None, rtol=None, max_interpolation_dofs=None,
                           pod_options={}, alg='ei_greedy', pool=dummy_pool):
@@ -291,7 +358,7 @@ def interpolate_operators(fom, operator_names, parameter_sample, error_norm=None
         A list of |Parameters| for which solution snapshots are calculated.
     error_norm
         See :func:`ei_greedy`.
-        Has no effect if `alg == 'deim'`.
+        Has no effect if `alg == 'deim' or `alg == 'qdeim'`.
     product
         Inner product for POD computation in :func:`deim`.
         Has no effect if `alg == 'ei_greedy'`.
@@ -325,7 +392,7 @@ def interpolate_operators(fom, operator_names, parameter_sample, error_norm=None
         In addition, `data` contains the fields of the `data` `dict` returned by
         :func:`ei_greedy`/:func:`deim`.
     """
-    assert alg in ('ei_greedy', 'deim')
+    assert alg in ('ei_greedy', 'deim', 'qdeim')
     logger = getLogger('pymor.algorithms.ei.interpolate_operators')
     with RemoteObjectManager() as rom:
         operators = [getattr(fom, operator_name) for operator_name in operator_names]
@@ -347,22 +414,23 @@ def interpolate_operators(fom, operator_names, parameter_sample, error_norm=None
                 dofs, basis, data = ei_greedy(evaluations, error_norm, atol=atol, rtol=rtol,
                                               max_interpolation_dofs=max_interpolation_dofs,
                                               copy=False, pool=pool)
-        elif alg == 'deim':
-            if alg == 'deim' and pool is not dummy_pool:
+        elif alg in ['deim', 'qdeim']:
+            if pool is not dummy_pool:
                 logger.warning('DEIM algorithm not parallel. Collecting operator evaluations.')
                 evaluations = pool.apply(_identity, x=evaluations)
                 evs = evaluations[0]
                 for e in evaluations[1:]:
                     evs.append(e, remove_from_other=True)
                 evaluations = evs
-            with logger.block('Executing DEIM algorithm:'):
-                dofs, basis, data = deim(evaluations, modes=max_interpolation_dofs,
-                                         atol=atol, rtol=rtol, pod_options=pod_options, product=product)
+            with logger.block(f'Executing {alg} algorithm:'):
+                deim_alg = deim if alg == 'deim' else qdeim
+                dofs, basis, data = deim_alg(evaluations, modes=max_interpolation_dofs,
+                                             atol=atol, rtol=rtol, pod_options=pod_options, product=product)
         else:
             assert False
 
     ei_operators = {name: EmpiricalInterpolatedOperator(operator, dofs, basis, triangular=(alg == 'ei_greedy'))
-                    for name, operator in zip(operator_names, operators)}
+                    for name, operator in zip(operator_names, operators, strict=True)}
     eim = fom.with_(name=f'{fom.name}_ei', **ei_operators)
 
     data.update({'dofs': dofs, 'basis': basis})
@@ -455,7 +523,8 @@ def _parallel_ei_greedy(U, pool, error_norm=None, atol=None, rtol=None, max_inte
 
     with pool.push({}) as distributed_data:
         errs, snapshot_counts = zip(
-            *pool.apply(_parallel_ei_greedy_initialize, U=U, error_norm=error_norm, copy=copy, data=distributed_data)
+            *pool.apply(_parallel_ei_greedy_initialize, U=U, error_norm=error_norm, copy=copy, data=distributed_data),
+            strict=True
         )
         snapshot_count = sum(snapshot_counts)
         cum_snapshot_counts = np.hstack(([0], np.cumsum(snapshot_counts)))
@@ -502,7 +571,8 @@ def _parallel_ei_greedy(U, pool, error_norm=None, atol=None, rtol=None, max_inte
             max_errs.append(max_err)
 
             errs, new_dof_values = zip(
-                *pool.apply(_parallel_ei_greedy_update, new_vec=new_vec, new_dof=new_dof, data=distributed_data)
+                *pool.apply(_parallel_ei_greedy_update, new_vec=new_vec, new_dof=new_dof, data=distributed_data),
+                strict=True
             )
             new_dof_values = np.hstack(new_dof_values)
             K -= K[:, global_max_err_ind:global_max_err_ind+1] @ (new_dof_values[np.newaxis, :] / new_dof_value)

@@ -93,7 +93,17 @@ common = """
 .. |EmpiricalInterpolatedOperators| replace:: :class:`EmpiricalInterpolatedOperators <pymor.operators.ei.EmpiricalInterpolatedOperator>`
 .. |ConcatenationOperator| replace:: :class:`~pymor.operators.constructions.ConcatenationOperator`
 .. |ConcatenationOperators| replace:: :class:`ConcatenationOperators <pymor.operators.constructions.ConcatenationOperator>`
+.. |AdjointOperator| replace:: :class:`~pymor.operators.constructions.AdjointOperator`
+.. |AdjointOperators| replace:: :class:`AdjointOperators <pymor.operators.constructions.AdjointOperator>`
+.. |ZeroOperator| replace:: :class:`~pymor.operators.constructions.ZeroOperator`
+.. |BlockOperator| replace:: :class:`~pymor.operators.block.BlockOperator`
+.. |BlockOperators| replace:: :class:`BlockOperators <pymor.operators.block.BlockOperator>`
+.. |BlockColumnOperator| replace:: :class:`~pymor.operators.block.BlockColumnOperator`
+.. |BlockVectorArray| replace:: :class:`~pymor.vectorarrays.block.BlockVectorArray`
+.. |SelectionOperator| replace:: :class:`~pymor.operators.constructions.SelectionOperator`
 .. |VectorOperator| replace:: :class:`~pymor.operators.constructions.VectorOperator`
+.. |VectorArrayOperator| replace:: :class:`~pymor.operators.constructions.VectorArrayOperator`
+.. |VectorArrayOperators| replace:: :class:`VectorArrayOperators <pymor.operators.constructions.VectorArrayOperator>`
 .. |VectorFunctional| replace:: :class:`~pymor.operators.constructions.VectorFunctional`
 .. |NumpyVectorSpace| replace:: :func:`~pymor.vectorarrays.numpy.NumpyVectorSpace`
 .. |NumpyVectorSpaces| replace:: :func:`NumpyVectorSpaces <pymor.vectorarrays.numpy.NumpyVectorSpace>`
@@ -119,8 +129,8 @@ common = """
 .. |SecondOrderModels| replace:: :class:`SecondOrderModels <pymor.models.iosys.SecondOrderModel>`
 .. |LinearDelayModel| replace:: :class:`~pymor.models.iosys.LinearDelayModel`
 .. |LinearDelayModels| replace:: :class:`LinearDelayModels <pymor.models.iosys.LinearDelayModel>`
-.. |NeuralNetworkModel| replace:: :class:`~pymor.models.neural_network.NeuralNetworkModel`
 .. |QuadraticHamiltonianModel| replace:: :class:`~pymor.models.symplectic.QuadraticHamiltonianModel`
+.. |SaddlePointModel| replace:: :class:`~pymor.models.saddle_point.SaddlePointModel`
 
 .. |MoebiusTransformation| replace:: :class:`~pymor.models.transforms.MoebiusTransformation`
 .. |MoebiusTransformations| replace:: :class:`MoebiusTransformations <pymor.models.transforms.MoebiusTransformation>`
@@ -159,7 +169,8 @@ common = """
 
 .. |OrderedDict| replace:: :class:`~collections.OrderedDict`
 
-.. |solver_options| replace:: :attr:`~pymor.operators.interface.Operator.solver_options`
+.. |Solver| replace:: :attr:`~pymor.solvers.interface.Solver`
+.. |Solvers| replace:: :attr:`Solvers <pymor.solvers.interface.Solver>`
 
 .. |RuleTable| replace:: :class:`~pymor.algorithms.rules.RuleTable`
 .. |RuleTables| replace:: :class:`RuleTables <pymor.algorithms.rules.RuleTable>`

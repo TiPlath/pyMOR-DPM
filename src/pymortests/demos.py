@@ -61,11 +61,20 @@ SUCCESSIVE_CONSTRAINTS_ARGS = (
     ('coercivity_estimation_scm', []),
 )
 
-NEURAL_NETWORK_ARGS = (
-    ('neural_networks', [15, 20, 3]),
-    ('neural_networks_fenics', [15, 3]),
-    ('neural_networks_instationary', [0, 10, 3, 15, 3]),
-    ('neural_networks_instationary', [1, 15, 3, 20, 3]),
+DATA_DRIVEN_ARGS = (
+    ('data_driven', ['vkoga', 15, 20]),
+    ('data_driven', ['gpr', 15, 20]),
+    ('data_driven', ['vkoga', 15, 20, '--input-scaling', '--output-scaling']),
+    ('data_driven_instationary', [0, 'vkoga', 10, 3, 15]),
+    ('data_driven_instationary', [1, 'vkoga', 15, 3, 20]),
+    ('data_driven_instationary', [1, 'vkoga', 15, 3, 20, '--time-vectorized']),
+    ('data_driven_instationary', [1, 'vkoga', 15, 3, 20, '--input-scaling', '--output-scaling']),
+    ('data_driven_instationary', [1, 'vkoga', 15, 3, 20, '--time-vectorized', '--input-scaling', '--output-scaling']),
+    ('data_driven_instationary', [1, 'fcnn', 15, 3, 20]),
+    ('data_driven_instationary', [1, 'gpr', 15, 3, 20]),
+    ('data_driven_fenics', ['vkoga', 15, '--input-scaling', '--output-scaling']),
+    ('data_driven_fenics', ['fcnn', 15, '--input-scaling', '--output-scaling']),
+    ('data_driven_fenics', ['gpr', 15, '--input-scaling', '--output-scaling']),
 )
 
 THERMALBLOCK_ARGS = (
@@ -95,6 +104,7 @@ THERMALBLOCK_SIMPLE_ARGS = (
 BURGERS_EI_ARGS = (
     ('burgers_ei', [1, 2, 2, 5, 2, 5, '--grid=20', '--plot-ei-err', '--plot-err', '--plot-solutions']),
     ('burgers_ei', [1, 2, 2, 5, 2, 5, '--grid=20', '--ei-alg=deim', '--plot-error-landscape']),
+    ('burgers_ei', [1, 2, 2, 5, 2, 5, '--grid=20', '--ei-alg=qdeim']),
 )
 
 PARABOLIC_MOR_ARGS = (
@@ -163,10 +173,28 @@ SYMPLECTIC_WAVE_ARGS = (
     ('symplectic_wave_equation', [1., 10]),
 )
 
+VKOGA_ARGS = (
+    ('vkoga', ['--greedy-criterion=fp']),
+    ('vkoga', ['--greedy-criterion=f']),
+    ('vkoga', ['--greedy-criterion=p']),
+    ('vkoga', ['--kernel=Matern']),
+    ('vkoga', ['--kernel=RationalQuadratic']),
+)
+
+VKOGA_2D_INPUT_ARGS = (
+    ('vkoga_2d_input', ['--greedy-criterion=fp']),
+    ('vkoga_2d_input', ['--greedy-criterion=f']),
+    ('vkoga_2d_input', ['--greedy-criterion=p']),
+)
+
+STOKES_REDUCTOR_ARGS = (
+    ('stokes', []),
+)
+
 DEMO_ARGS = (
     DISCRETIZATION_ARGS
     + SUCCESSIVE_CONSTRAINTS_ARGS
-    + NEURAL_NETWORK_ARGS
+    + DATA_DRIVEN_ARGS
     + THERMALBLOCK_ARGS
     + THERMALBLOCK_ADAPTIVE_ARGS
     + THERMALBLOCK_SIMPLE_ARGS
@@ -181,6 +209,9 @@ DEMO_ARGS = (
     + DMD_ARGS
     + PHLTI_ARGS
     + SYMPLECTIC_WAVE_ARGS
+    + VKOGA_ARGS
+    + VKOGA_2D_INPUT_ARGS
+    + STOKES_REDUCTOR_ARGS
 )
 
 DEMO_ARGS = [(f'pymordemos.{a}', b) for (a, b) in DEMO_ARGS]
@@ -188,16 +219,31 @@ DEMO_ARGS = [(f'pymordemos.{a}', b) for (a, b) in DEMO_ARGS]
 
 def _skip_if_no_solver(param):
     demo, args = param
+    full_str = ' '.join(str(x) for x in [demo] + args)
     builtin = True
     from pymor.core.config import config
-    for solver, package in [('fenics', None), ('ngsolve', None), ('neural_', 'TORCH'),
-                            ('neural_networks_instationary', 'FENICS')]:
-        package = package or solver.upper()
-        needs_solver = len([f for f in args if solver in str(f)]) > 0 or demo.find(solver) >= 0
-        has_solver = getattr(config, f'HAVE_{package}')
-        builtin = builtin and (not needs_solver or package == 'TORCH')
+    for check, package in [
+            (lambda s: 'fenics' in s, ('FENICS', 'FENICSX')),
+            (lambda s: 'ngsolve' in s, 'NGSOLVE'),
+            (lambda s: 'fcnn' in s, 'TORCH'),
+            (lambda s: 'data_driven_instationary' in s, 'FENICS'),
+            (lambda s: 'data_driven_fenics' in s, 'FENICS'),
+            (lambda s: 'parabolic_mor' in s and 'fenics' in s, 'FENICS'),
+            (lambda s: 'thermalblock' in s and 'simple' not in s and 'fenics' in s, 'FENICS'),
+            (lambda s: 'stokes' in s, 'SCIKIT_FEM'),
+    ]:
+        needs_solver = check(full_str)
+        if isinstance(package, tuple):
+            has_solver = any(getattr(config, f'HAVE_{p}') for p in package)
+        else:
+            has_solver = getattr(config, f'HAVE_{package}')
+        if needs_solver and package != 'TORCH':
+            builtin = False
         if needs_solver and not has_solver:
-            pytest.skip('skipped test due to missing ' + package)
+            if isinstance(package, tuple):
+                pytest.skip('skipped test due to missing ' + ' or '.join(package))
+            else:
+                pytest.skip('skipped test due to missing ' + package)
     if builtin and BUILTIN_DISABLED:
         pytest.skip('builtin discretizations disabled')
 
@@ -224,14 +270,9 @@ def _test_demo(demo):
     import sys
     sys._called_from_test = True
 
-    def nop(*args, **kwargs):
-        pass
+    from matplotlib import pyplot as plt
+    plt.ion()
 
-    try:
-        from matplotlib import pyplot as plt
-        plt.ion()
-    except ImportError:
-        pass
     try:
         import petsc4py
 

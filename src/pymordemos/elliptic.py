@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # This file is part of the pyMOR project (https://www.pymor.org).
 # Copyright pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
@@ -79,7 +78,7 @@ def main(
         print('Computing outputs ...')
         S = m.output()
         print(f'  average solution over the domain:   {S[0, 0]}')
-        print(f'  average solution over the boundary: {S[0, 1]}')
+        print(f'  average solution over the boundary: {S[1, 0]}')
 
 
 if __name__ == '__main__':

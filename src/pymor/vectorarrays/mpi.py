@@ -67,9 +67,6 @@ class MPIVectorArrayImpl(VectorArrayImpl):
     def amax(self, ind):
         return mpi.call(mpi.function_call, _MPIVectorArray_amax, self.obj_id, ind)
 
-    def __del__(self):
-        mpi.call(mpi.remove_object, self.obj_id)
-
     def real(self, ind):
         return type(self)(mpi.call(mpi.function_call_manage, _MPIVectorArray_real, self.obj_id, ind), self.space)
 
@@ -159,7 +156,7 @@ class MPIVectorSpace(VectorSpace):
     def __eq__(self, other):
         return type(other) is MPIVectorSpace and \
             len(self.local_spaces) == len(other.local_spaces) and \
-            all(ls == ols for ls, ols in zip(self.local_spaces, other.local_spaces))
+            all(ls == ols for ls, ols in zip(self.local_spaces, other.local_spaces, strict=True))
 
     def __repr__(self):
         return f'{self.__class__}({self.local_spaces})'

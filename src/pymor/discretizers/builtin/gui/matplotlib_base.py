@@ -26,6 +26,7 @@ class MatplotlibPatchAxes:
         assert codim in (0, 2)
 
         subentities, coordinates, entity_map = flatten_grid(grid)
+        self.entity_map = entity_map
         self.subentities = subentities if grid.reference_element is triangle \
             else np.vstack((subentities[:, 0:3], subentities[:, [2, 3, 0]]))
         self.reference_element = grid.reference_element
@@ -57,7 +58,7 @@ class MatplotlibPatchAxes:
     def set(self, U, vmin, vmax):
         assert U.ndim == 1
         if self.codim == 2:
-            self.p.set_array(U)
+            self.p.set_array(U[self.entity_map])
         elif self.reference_element is triangle:
             self.p.set_array(U)
         else:
@@ -98,7 +99,7 @@ class Matplotlib1DAxes:
             self.lines = [self.ax[0].plot(xs, np.zeros_like(xs))[0] for _ in range(count)]
         if legend:
             if separate_plots:
-                for ax, l in zip(self.ax, legend):
+                for ax, l in zip(self.ax, legend, strict=True):
                     ax.legend([l])
             else:
                 self.ax[0].legend(legend)
@@ -112,6 +113,6 @@ class Matplotlib1DAxes:
                     self.lines[i].set_ydata(u)
             else:
                 self.lines[i].set_ydata(np.repeat(u, 2))
-        for ax, mi, ma in zip(self.ax, vmin, vmax):
+        for ax, mi, ma in zip(self.ax, vmin, vmax, strict=False):
             pad = (ma - mi) * 0.1
             ax.set_ylim(mi - pad, ma + pad)

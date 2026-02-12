@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,8 +7,9 @@ name = "pymor"
 dynamic = ["version"]
 description = "Library for building model order reduction applications with Python"
 readme = "README.md"
-license = {file = "LICENSE.txt"}
-requires-python = ">=3.9"
+license = "BSD-2-Clause AND BSD-3-Clause"
+license-files = ["LICENSE.txt", "LICENSES_bundled.txt"]
+requires-python = ">=3.10"
 authors = [
   {name = "pyMOR developers", email = "main.developers@pymor.org"},
 ]
@@ -17,8 +18,6 @@ maintainers = [
 ]
 classifiers = [
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: BSD License",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -28,12 +27,12 @@ classifiers = [
 dependencies = [
   "diskcache",
   "matplotlib>=3.5.0",
-  "numpy>=1.20.3,!=1.25.0", # 1.25.0 crashes CI
+  "numpy>=1.21,!=1.25.0", # 1.25.0 crashes CI
   "packaging",
   "pillow",
   "pygments",
   "qtpy>=2.3.1",
-  "scipy>=1.8",
+  "scipy>=1.8,!=1.15.0,!=1.15.1,!=1.15.2",
   "threadpoolctl",
   "typer",
 ]
@@ -47,6 +46,7 @@ docs = [
 # to avoid pip-compile include pymor itself as a dependency, why is happening
 # when recursive extras are used within recursive extras
 docs-additional = [
+  "astroid<4", # astroid 4 is incompatible with the pinned sphinx/autoapi version
   "bash_kernel",
   "docutils",
   "myst-nb>=0.16",
@@ -60,15 +60,17 @@ docs-additional = [
 # additional dependencies for running tests via 'make tests'
 tests = [
   "hypothesis[numpy,pytest]==6.56.3", # pin hypothesis version to ensure deterministic tests
-  "pytest-notebook~=0.10",
-  "notebook",
+  "nbmake",
   "pytest-cov",
   "pytest-datadir",
   "pytest>=7.2.1", # 7.2.0 causes format_source tests to fail do to wrong paths in co_filename
 ]
+ci-conda = [
+  "pyopengl!=3.1.7,!=3.1.9,!=3.1.10", # CI crashes
+]
 # additional dependencies for pyMOR development
 dev = [
-  "ruff==0.8.6", # our linter of choice
+  "ruff==0.13.3", # our linter of choice
   "conda_lock==2.5.7", # needed for make ci_conda_requirements
   "hatch", # build frontend for building and publishing pyMOR images
   "uv", # to build requirements files
@@ -119,19 +121,18 @@ gmsh = [
   "gmsh",
 ]
 # # Supported external solvers available on PyPI
-dune = [
-  "dune-xt[visualisation]>=2022.5.3; platform_system==\"Linux\" and platform_machine==\"x86_64\"",
-  "dune-gdt>=2022.5.3; platform_system==\"Linux\" and platform_machine==\"x86_64\"",
-]
 ngsolve = [
   "ngsolve",
 ]
 scikit-fem = [
   "scikit-fem>=6.0.0",
 ]
+# Machine learning
+scikit-learn = [
+  "scikit-learn",
+]
 # # Meta dependencies
 # install all optional dependencies, except those requiring a compiler toolchain to build
-# dune-gdt has no wheels for Python>=3.12, so we don't include it in full
 full = [
   "pymor[docs_additional,tests,dev,ann,ipyparallel,gui,jupyter,vtk,gmsh,ngsolve,scikit-fem]",
 ]
@@ -188,6 +189,7 @@ include = [
   "/src",
   "/docs",
   "CITATION.cff",
+  "conftest.py",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -276,6 +278,7 @@ ignore = [
   "RUF005", # consider unpacking instead of concatenation
   "RUF021", # parenthesize a and b expressions when chaining and and or together, to make the precedence clear
   "RUF023", # __slots__ is not sorted
+  "RUF059", # Unpacked variable is never used
   "SIM102", # use a single if statement instead of nested if statements
   "SIM103", # return the condition directly
   "SIM105", # use contextlib.suppress instead of try-except-pass
@@ -299,10 +302,10 @@ inline-quotes = "single"
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"] # module imported but unused
 "docs/source/try_on_binder.py" = ["N801"] # class name CapWords convention
-"src/pymor/algorithms/genericsolvers.py" = ["TD001"] # invalid TODO tag (XXX)
 "src/pymor/algorithms/rules.py" = ["N801", "N805"] # class name CapWords convention, first argument should be `self`
 "src/pymor/analyticalproblems/expressions.py" = ["N801"] # class name CapWords convention
 "src/pymor/basic.py" = ["F401"] # ununsed imports
+"src/pymor/solvers/generic.py" = ["TD001"] # invalid TODO tag (XXX)
 "src/pymordemos/*" = ["F403", "F405"] # undefined import due to pymor.basic functionality
 
 [tool.ruff.lint.pycodestyle]

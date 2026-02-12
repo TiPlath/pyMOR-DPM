@@ -27,12 +27,12 @@ class InversionError(Exception):
     """Is raised if an operator inversion algorithm fails."""
 
 
+class NewtonError(InversionError):
+    """Is raised if the Newton algorithm fails to converge."""
+
+
 class LinAlgError(Exception):
     """Is raised if a linear algebra operation fails."""
-
-
-class NewtonError(Exception):
-    """Is raised if the Newton algorithm fails to converge."""
 
 
 class BFGSError(Exception):
@@ -81,6 +81,14 @@ class QtMissingError(DependencyMissingError):
     def __init__(self, msg=None):
         msg = msg or 'cannot visualize: import of Qt bindings failed'
         super().__init__('QT', msg)
+
+
+class SklearnMissingError(DependencyMissingError):
+    """Raise me where having importable scikit-learn version is non-optional."""
+
+    def __init__(self, msg=None):
+        msg = msg or 'cannot use scikit-learn: import of sklearn failed'
+        super().__init__('SKLEARN', msg)
 
 
 class TorchMissingError(DependencyMissingError):

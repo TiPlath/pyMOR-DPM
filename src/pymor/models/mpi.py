@@ -50,13 +50,10 @@ class MPIModel:
     def visualize(self, U, **kwargs):
         self.visualizer.visualize(U, **kwargs)
 
-    def __del__(self):
-        mpi.call(mpi.remove_object, self.obj_id)
-
 
 class MPIVisualizer(ImmutableObject):
 
-    def __init__(self, m_obj_id, remove_model=False):
+    def __init__(self, m_obj_id):
         self.__auto_init(locals())
 
     def visualize(self, U, **kwargs):
@@ -68,16 +65,12 @@ class MPIVisualizer(ImmutableObject):
             U = U.impl.obj_id
         mpi.call(_MPIVisualizer_visualize, self.m_obj_id, U, ind, **kwargs)
 
-    def __del__(self):
-        if self.remove_model:
-            mpi.call(mpi.remove_object, self.m_obj_id)
-
 
 def _MPIVisualizer_visualize(m, U, ind, **kwargs):
     m = mpi.get_object(m)
     if isinstance(U, tuple):
         U = tuple(mpi.get_object(u) for u in U)
-        U = tuple(u[i] if i is not None else u for u, i in zip(U, ind))
+        U = tuple(u[i] if i is not None else u for u, i in zip(U, ind, strict=True))
     else:
         U = mpi.get_object(U)
         if ind is not None:
@@ -153,9 +146,7 @@ def mpi_wrap_model(local_models, mpi_spaces=None, use_with=True, with_apply2=Fal
     if use_with:
         m = mpi.get_object(local_models)
         if m.visualizer:
-            wrapped_attributes['visualizer'] = MPIVisualizer(local_models, True)
-        else:
-            mpi.call(mpi.remove_object, local_models)
+            wrapped_attributes['visualizer'] = MPIVisualizer(local_models)
         m = m.with_(**wrapped_attributes)
         return m
     else:
@@ -198,7 +189,7 @@ def _mpi_wrap_model_manage_operators(obj_id, mpi_spaces, use_with, base_type):
 def _map_children(f, obj):
     if isinstance(obj, dict):
         return {k: f(v) for k, v in sorted(obj.items())}
-    elif isinstance(obj, (list, tuple, set)) and not isinstance(obj, _OperatorToWrap):
+    elif isinstance(obj, list | tuple | set) and not isinstance(obj, _OperatorToWrap):
         return type(obj)(f(v) for v in obj)
     else:
         return f(obj)

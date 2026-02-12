@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # This file is part of the pyMOR project (https://www.pymor.org).
 # Copyright pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
@@ -239,6 +238,7 @@ def discretize_fenics(xblocks, yblocks, grid_num_intervals, element_order):
 def _discretize_fenics(xblocks, yblocks, grid_num_intervals, element_order):
 
     from pymor.analyticalproblems.thermalblock import thermal_block_problem
+    from pymor.bindings.fenics import FenicsLinearSolver
     from pymor.discretizers.fenics import discretize_stationary_cg
 
     print('Discretize ...')
@@ -246,7 +246,8 @@ def _discretize_fenics(xblocks, yblocks, grid_num_intervals, element_order):
     problem = thermal_block_problem(num_blocks=(xblocks, yblocks))
 
     # discretize using continuous finite elements
-    fom, _ = discretize_stationary_cg(problem, diameter=1. / grid_num_intervals, degree=element_order)
+    solver = FenicsLinearSolver(method='cg', preconditioner='jacobi')
+    fom, _ = discretize_stationary_cg(problem, diameter=1. / grid_num_intervals, degree=element_order, solver=solver)
 
     return fom
 

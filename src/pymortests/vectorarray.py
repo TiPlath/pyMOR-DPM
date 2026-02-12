@@ -12,7 +12,6 @@ from hypothesis.extra.numpy import arrays
 
 import pymortests.strategies as pyst
 from pymor.algorithms.basic import almost_equal
-from pymor.core.config import config
 from pymor.tools.floatcmp import bounded, float_cmp
 from pymor.vectorarrays.interface import VectorSpace
 from pymor.vectorarrays.numpy import NumpyVectorSpace
@@ -139,27 +138,7 @@ def test_full(vector_array):
                           high=hyst.floats(allow_infinity=False, allow_nan=False))
 @example(vector_array=NumpyVectorSpace(1).empty(), realizations=2,
          low=-5e-324, high=0.0)
-def test_random_uniform_all(vector_array, realizations, low, high):
-    if config.HAVE_DUNEGDT:
-        # atm needs special casing due to norm implementation handling of large vector elements
-        from pymor.bindings.dunegdt import DuneXTVectorSpace
-        if isinstance(vector_array.space, DuneXTVectorSpace):
-            return
-    _test_random_uniform(vector_array, realizations, low, high)
-
-
-if config.HAVE_DUNEGDT:
-    @pyst.given_vector_arrays(realizations=hyst.integers(min_value=0, max_value=MAX_RNG_REALIZATIONS),
-                              low=hyst.floats(allow_infinity=False, allow_nan=False,
-                                              max_value=10e100, min_value=-10e100),
-                              high=hyst.floats(allow_infinity=False, allow_nan=False,
-                                               max_value=10e100, min_value=-10e100),
-                              which=('dunegdt',))
-    def test_random_uniform_dune(vector_array, realizations, low, high):
-        _test_random_uniform(vector_array, realizations, low, high)
-
-
-def _test_random_uniform(vector_array, realizations, low, high):
+def test_random_uniform(vector_array, realizations, low, high):
     assume(np.isfinite(high-low))  # avoid overflow in np.random.RandomState.uniform
     with pytest.raises(Exception):
         vector_array.random(-1)
@@ -657,7 +636,7 @@ def test_lincomb_1d(vectors_and_indices, data):
     assert lc.space == v.space
     assert len(lc) == 1
     lc2 = v.zeros()
-    for coeff, i in zip(coeffs, ind_to_list(v, ind)):
+    for coeff, i in zip(coeffs, ind_to_list(v, ind), strict=True):
         lc2.axpy(coeff, v[i])
     assert np.all(almost_equal(lc, lc2))
 
@@ -816,7 +795,7 @@ def test_amax(vectors_and_indices):
     assume(v.dim > 0)
     max_inds, max_vals = v[ind].amax()
     assert np.allclose(max_vals, v[ind].sup_norm())
-    for i, max_ind, max_val in zip(ind_to_list(v, ind), max_inds, max_vals):
+    for i, max_ind, max_val in zip(ind_to_list(v, ind), max_inds, max_vals, strict=True):
         assert np.allclose(max_val, np.abs(v[[i]].dofs([max_ind])))
 
 
@@ -1046,6 +1025,7 @@ def test_pickle(vector_array):
     assert_picklable_without_dumps_function(vector_array)
 
 
+@pytest.mark.builtin
 def test_numpyvectorspace_dim_must_be_int():
     with pytest.raises(AssertionError):
         _ = NumpyVectorSpace(5.)

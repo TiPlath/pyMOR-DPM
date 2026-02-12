@@ -53,6 +53,8 @@ import pkgutil
 import textwrap
 import threading
 from collections import OrderedDict, defaultdict
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
 
 from pymor.core.exceptions import DependencyMissingError
 from pymor.tools.table import format_table
@@ -103,6 +105,7 @@ Defaults
             defaultsdict[n] = p.default
 
         path = func.__module__ + '.' + getattr(func, '__qualname__', func.__name__)
+        path = path.removesuffix('.__init__')
         if path in self.registered_functions:
             raise ValueError(f'Function with name {path} already registered for default values!')
         self.registered_functions.add(path)
@@ -187,6 +190,7 @@ Defaults
 
 _default_container = DefaultContainer()
 
+F = TypeVar('F', bound=Callable[..., Any])
 
 def defaults(*args):
     """Function decorator for marking function arguments as user-configurable defaults.
@@ -214,7 +218,13 @@ def defaults(*args):
     """
     assert all(isinstance(arg, str) for arg in args)
 
-    def the_decorator(decorated_function):
+    # Note: We use the pre-ParamSpec style of annotating @defaults here, as reccomended by mypy
+    # docs. Using P = ParamSpec('P'); T = TypeVar('T'); Callable[P, T] does not work with jedi.
+    # For some reason, it loses its ability to remove self from method signatures, when using this
+    # annotation.
+    # def the_decorator[**P, T](decorated_function: Callable[P, T]) -> Callable[P, T]
+    # seems to work, but requires Python >= 3.12.
+    def the_decorator(decorated_function: F) -> F:
 
         if not args:
             return decorated_function
@@ -223,7 +233,7 @@ def defaults(*args):
         _default_container._add_defaults_for_function(decorated_function, args=args)
 
         def set_default_values(*wrapper_args, **wrapper_kwargs):
-            for k, v in zip(decorated_function.argnames, wrapper_args):
+            for k, v in zip(decorated_function.argnames, wrapper_args, strict=False):
                 if k in wrapper_kwargs:
                     raise TypeError(f"{decorated_function.__name__} got multiple values for argument '{k}'")
                 wrapper_kwargs[k] = v
@@ -232,13 +242,13 @@ def defaults(*args):
             wrapper_kwargs = dict(decorated_function.defaultsdict, **wrapper_kwargs)
             return wrapper_kwargs
 
-        # ensure that __signature__ is not copied
+        # updated=(): ensure that __dict__ is not copied
         @functools.wraps(decorated_function, updated=())
         def defaults_wrapper(*wrapper_args, **wrapper_kwargs):
             kwargs = set_default_values(*wrapper_args, **wrapper_kwargs)
             return decorated_function(**kwargs)
 
-        return defaults_wrapper
+        return cast(F, defaults_wrapper)
 
     return the_decorator
 
@@ -292,11 +302,14 @@ def print_defaults(import_all=True, shorten_paths=0):
             keys.append('.'.join(k_parts[shorten_paths:]))
         else:
             keys.append('.'.join(k_parts))
-        values.append(repr(v))
+        if inspect.isclass(v) or inspect.isfunction(v):
+            values.append(f'{v.__module__}.{v.__qualname__}')
+        else:
+            values.append(repr(v))
         comments.append(c)
     key_string = 'path (shortened)' if shorten_paths else 'path'
 
-    rows = [[key_string, 'value', 'source']] + list(zip(keys, values, comments))
+    rows = [[key_string, 'value', 'source']] + list(zip(keys, values, comments, strict=True))
     print(format_table(rows, title='pyMOR defaults'))
     print()
 
@@ -327,7 +340,10 @@ def write_defaults_to_file(filename='./pymor_defaults.py', packages=('pymor',)):
     for k in sorted(_default_container.keys()):
         v, c = _default_container.get(k)
         keys.append("'" + k + "'")
-        values.append(repr(v))
+        if inspect.isclass(v) or inspect.isfunction(v):
+            values.append(f"import_module('{v.__module__}').{v.__qualname__}")
+        else:
+            values.append(repr(v))
         as_comment.append(c == 'code')
     key_width = max(max([0] + list(map(len, ks))) for ks in keys)
 
@@ -336,11 +352,13 @@ def write_defaults_to_file(filename='./pymor_defaults.py', packages=('pymor',)):
 # pyMOR defaults config file
 # This file has been automatically created by pymor.core.defaults.write_defaults_to_file'.
 
+from importlib import import_module
+
 d = {}
 """[1:], file=f)
 
         lks = keys[0].split('.')[:-1] if keys else ''
-        for c, k, v in zip(as_comment, keys, values):
+        for c, k, v in zip(as_comment, keys, values, strict=True):
             ks = k.split('.')[:-1]
             if lks != ks:
                 print('', file=f)

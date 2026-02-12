@@ -125,7 +125,7 @@ class StationaryModel(Model):
                     lhs_d_mu = self.operator.d_mu(parameter, index).apply2(
                         dual_solutions, data['solution'], mu=mu)[:, 0]
                     rhs_d_mu = self.rhs.d_mu(parameter, index).apply_adjoint(dual_solutions, mu=mu).to_numpy()[0, :]
-                    sensitivities[parameter, index] = (output_partial_dmu + rhs_d_mu - lhs_d_mu).reshape((1, -1))
+                    sensitivities[parameter, index] = (output_partial_dmu + rhs_d_mu - lhs_d_mu).reshape((-1, 1))
             data['output_d_mu'] = OutputDMuResult(sensitivities)
             quantities.remove('output_d_mu')
 
@@ -188,6 +188,8 @@ class StationaryModel(Model):
             new_operator = \
                 self.operator @ (IdentityOperator(self.solution_space)
                                  + ConstantOperator(affine_shift, self.solution_space))
+            if solver := self.operator.solver:
+                new_operator = new_operator.with_(solver=solver)
             new_rhs = self.rhs
 
         if not isinstance(self.output_functional, ZeroOperator):

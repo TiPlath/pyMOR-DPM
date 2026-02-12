@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # This file is part of the pyMOR project (https://www.pymor.org).
 # Copyright pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
@@ -62,7 +61,7 @@ def fom_properties(fom, w, stable_lti=True):
         fig_poles = subfigs1[0]
         fig_sv = subfigs1[1]
         fig_time = subfigs[2]
-    elif isinstance(fom, (LTIModel, SecondOrderModel)):
+    elif isinstance(fom, LTIModel | SecondOrderModel):
         fig = plt.figure(figsize=(10, 8), constrained_layout=True)
         fig.suptitle('Full-order model')
         subfigs = fig.subfigures(1, 2)
@@ -104,7 +103,7 @@ def fom_properties(fom, w, stable_lti=True):
             if stable_lti:
                 hsv = fom.hsv()
             else:
-                hsv = fom._sv_U_V(typ='bs')[0]
+                hsv = fom._hankel_svd(typ='bs')[1]
             ax = fig_sv.subplots()
             ax.semilogy(range(1, len(hsv) + 1), hsv, '.-')
             if stable_lti:
@@ -141,8 +140,8 @@ def fom_properties(fom, w, stable_lti=True):
         times = np.linspace(0, fom.T, fom.time_stepper.nt + 1)
         for i in range(fom.dim_output):
             for j in range(fom.dim_input):
-                axs_i[i, j].plot(times, y_i[:, i, j])
-                axs_s[i, j].plot(times, y_s[:, i, j])
+                axs_i[i, j].plot(times, y_i[i, :, j])
+                axs_s[i, j].plot(times, y_s[i, :, j])
         for j in range(fom.dim_input):
             axs_i[-1, j].set_xlabel('Time (s)')
             axs_s[-1, j].set_xlabel('Time (s)')
@@ -257,10 +256,10 @@ def run_mor_method(fom, w, reductor, reductor_short_name, r, stable=True, **redu
         times = np.linspace(0, fom.T, fom.time_stepper.nt + 1)
         for i in range(fom.dim_output):
             for j in range(fom.dim_input):
-                axs_i[i, j].plot(times, y_i[:, i, j], label='FOM')
-                axs_s[i, j].plot(times, y_s[:, i, j], label='FOM')
-                axs_i[i, j].plot(times, yr_i[:, i, j], '--', label='ROM')
-                axs_s[i, j].plot(times, yr_s[:, i, j], '--', label='ROM')
+                axs_i[i, j].plot(times, y_i[i, :, j], label='FOM')
+                axs_s[i, j].plot(times, y_s[i, :, j], label='FOM')
+                axs_i[i, j].plot(times, yr_i[i, :, j], '--', label='ROM')
+                axs_s[i, j].plot(times, yr_s[i, :, j], '--', label='ROM')
         for j in range(fom.dim_input):
             axs_i[-1, j].set_xlabel('Time (s)')
             axs_s[-1, j].set_xlabel('Time (s)')

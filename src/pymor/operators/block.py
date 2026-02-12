@@ -17,7 +17,7 @@ class BlockOperatorBase(Operator):
         for (i, j) in np.ndindex(self.blocks.shape):
             yield self.blocks[i, j]
 
-    def __init__(self, blocks, name=None):
+    def __init__(self, blocks, range_spaces=None, source_spaces=None, solver=None, name=None):
         self.blocks = blocks = np.array(blocks)
         assert 1 <= blocks.ndim <= 2
         if self.blocked_source and self.blocked_range:
@@ -31,20 +31,31 @@ class BlockOperatorBase(Operator):
         assert all(isinstance(op, Operator) or op is None for op in self._operators())
 
         # check if every row/column contains at least one operator
-        assert all(any(blocks[i, j] is not None for j in range(blocks.shape[1]))
-                   for i in range(blocks.shape[0]))
-        assert all(any(blocks[i, j] is not None for i in range(blocks.shape[0]))
-                   for j in range(blocks.shape[1]))
+        # find source/range spaces for every column/row if its not passed as an argument
+        if not(range_spaces and source_spaces):
+            assert all(any(blocks[i, j] is not None for j in range(blocks.shape[1]))
+                        for i in range(blocks.shape[0]))
+            assert all(any(blocks[i, j] is not None for i in range(blocks.shape[0]))
+                        for j in range(blocks.shape[1]))
 
-        # find source/range spaces for every column/row
-        source_spaces = [None for j in range(blocks.shape[1])]
-        range_spaces = [None for i in range(blocks.shape[0])]
-        for (i, j), op in np.ndenumerate(blocks):
-            if op is not None:
-                assert source_spaces[j] is None or op.source == source_spaces[j]
-                source_spaces[j] = op.source
-                assert range_spaces[i] is None or op.range == range_spaces[i]
-                range_spaces[i] = op.range
+            source_spaces = [None for _ in range(blocks.shape[1])]
+            range_spaces = [None for _ in range(blocks.shape[0])]
+
+            for (i, j), op in np.ndenumerate(blocks):
+                if op is not None:
+                    assert source_spaces[j] is None or op.source == source_spaces[j]
+                    source_spaces[j] = op.source
+                    assert range_spaces[i] is None or op.range == range_spaces[i]
+                    range_spaces[i] = op.range
+
+        else:
+            for (i, j), op in np.ndenumerate(blocks):
+                if op is not None:
+                    assert op.source == source_spaces[j]
+                    assert op.range == range_spaces[i]
+                else:
+                    assert source_spaces[j]
+                    assert range_spaces[i]
 
         # turn Nones to ZeroOperators
         for (i, j) in np.ndindex(blocks.shape):
@@ -52,6 +63,11 @@ class BlockOperatorBase(Operator):
                 self.blocks[i, j] = ZeroOperator(range_spaces[i], source_spaces[j])
 
         self.__auto_init(locals())
+
+        # if self.source_spaces and self.range_spaces are not set to None,
+        # op.with_(blocks=...) will fail when some spaces change.
+        self.source_spaces = None
+        self.range_spaces = None
         self.source = BlockVectorSpace(source_spaces) if self.blocked_source else source_spaces[0]
         self.range = BlockVectorSpace(range_spaces) if self.blocked_range else range_spaces[0]
         self.num_source_blocks = len(source_spaces)
@@ -60,7 +76,8 @@ class BlockOperatorBase(Operator):
 
     @property
     def H(self):
-        return self.adjoint_type(np.vectorize(lambda op: op.H)(self.blocks.T))
+        return self.adjoint_type(np.vectorize(lambda op: op.H)(self.blocks.T),
+                                 solver=self._adjoint_solver)
 
     def apply(self, U, mu=None):
         assert U in self.source
@@ -112,7 +129,7 @@ class BlockOperatorBase(Operator):
             return R
 
         subspaces = self.range.subspaces if self.blocked_range else [self.range]
-        blocks = [process_row(row, space) for row, space in zip(self.blocks, subspaces)]
+        blocks = [process_row(row, space) for row, space in zip(self.blocks, subspaces, strict=True)]
         return self.range.make_array(blocks) if self.blocked_range else blocks[0]
 
     def as_source_array(self, mu=None):
@@ -124,7 +141,7 @@ class BlockOperatorBase(Operator):
             return R
 
         subspaces = self.source.subspaces if self.blocked_source else [self.source]
-        blocks = [process_col(col, space) for col, space in zip(self.blocks.T, subspaces)]
+        blocks = [process_col(col, space) for col, space in zip(self.blocks.T, subspaces, strict=True)]
         return self.source.make_array(blocks) if self.blocked_source else blocks[0]
 
     def d_mu(self, parameter, index=0):
@@ -134,11 +151,13 @@ class BlockOperatorBase(Operator):
         return self.with_(blocks=blocks)
 
     def jacobian(self, U, mu):
+        if self.linear:
+            return self
         assert len(U) == 1
         jacs = np.empty(self.blocks.shape, dtype=object)
         for (i, j) in np.ndindex(self.blocks.shape):
             jacs[i, j] = self.blocks[i, j].jacobian(U.blocks[i] if self.blocked_source else U, mu)
-        return self.with_(blocks=jacs)
+        return self.with_(blocks=jacs, solver=self._jacobian_solver)
 
 
 class BlockOperator(BlockOperatorBase):
@@ -178,22 +197,22 @@ BlockColumnOperator.adjoint_type = BlockRowOperator
 
 class BlockProjectionOperator(BlockRowOperator):
 
-    def __init__(self, block_space, component, name=None):
+    def __init__(self, block_space, component, solver=None, name=None):
         assert isinstance(block_space, BlockVectorSpace)
         assert 0 <= component < len(block_space.subspaces)
         blocks = [ZeroOperator(space, space) if i != component else IdentityOperator(space)
                   for i, space in enumerate(block_space.subspaces)]
-        super().__init__(blocks, name=name)
+        super().__init__(blocks, solver=solver, name=name)
 
 
 class BlockEmbeddingOperator(BlockColumnOperator):
 
-    def __init__(self, block_space, component, name=None):
+    def __init__(self, block_space, component, solver=None, name=None):
         assert isinstance(block_space, BlockVectorSpace)
         assert 0 <= component < len(block_space.subspaces)
         blocks = [ZeroOperator(space, space) if i != component else IdentityOperator(space)
                   for i, space in enumerate(block_space.subspaces)]
-        super().__init__(blocks, name=name)
+        super().__init__(blocks, solver=solver, name=name)
 
 
 class BlockDiagonalOperator(BlockOperator):
@@ -203,7 +222,7 @@ class BlockDiagonalOperator(BlockOperator):
     block diagonal case.
     """
 
-    def __init__(self, blocks, name=None):
+    def __init__(self, blocks, solver=None, name=None):
         blocks = np.array(blocks)
         assert 1 <= blocks.ndim <= 2
         if blocks.ndim == 2:
@@ -212,7 +231,7 @@ class BlockDiagonalOperator(BlockOperator):
         blocks2 = np.empty((n, n), dtype=object)
         for i, op in enumerate(blocks):
             blocks2[i, i] = op
-        super().__init__(blocks2, name=name)
+        super().__init__(blocks2, solver=solver, name=name)
 
     def apply(self, U, mu=None):
         assert U in self.source
@@ -224,25 +243,19 @@ class BlockDiagonalOperator(BlockOperator):
         U_blocks = [self.blocks[i, i].apply_adjoint(V.blocks[i], mu=mu) for i in range(self.num_source_blocks)]
         return self.source.make_array(U_blocks)
 
-    def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
-        assert V in self.range
-        assert initial_guess is None or initial_guess in self.source and len(initial_guess) == len(V)
+    def _apply_inverse(self, V, mu, initial_guess):
         U_blocks = [self.blocks[i, i].apply_inverse(V.blocks[i], mu=mu,
                                                     initial_guess=(initial_guess.blocks[i]
-                                                                   if initial_guess is not None else None),
-                                                    least_squares=least_squares)
+                                                                   if initial_guess is not None else None))
                     for i in range(self.num_source_blocks)]
-        return self.source.make_array(U_blocks)
+        return self.source.make_array(U_blocks), {}
 
-    def apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
-        assert U in self.source
-        assert initial_guess is None or initial_guess in self.range and len(initial_guess) == len(U)
+    def _apply_inverse_adjoint(self, U, mu, initial_guess):
         V_blocks = [self.blocks[i, i].apply_inverse_adjoint(U.blocks[i], mu=mu,
                                                             initial_guess=(initial_guess.blocks[i]
-                                                                           if initial_guess is not None else None),
-                                                            least_squares=least_squares)
+                                                                           if initial_guess is not None else None))
                     for i in range(self.num_source_blocks)]
-        return self.range.make_array(V_blocks)
+        return self.range.make_array(V_blocks), {}
 
     def assemble(self, mu=None):
         blocks = np.empty((self.num_source_blocks,), dtype=object)
@@ -254,7 +267,7 @@ class BlockDiagonalOperator(BlockOperator):
         if assembled:
             return self
         else:
-            return self.__class__(blocks)
+            return type(self)(blocks, solver=self.solver)
 
 
 class SecondOrderModelOperator(BlockOperator):
@@ -305,11 +318,11 @@ class SecondOrderModelOperator(BlockOperator):
         |Operator|.
     """
 
-    def __init__(self, alpha, beta, A, B, name=None):
+    def __init__(self, alpha, beta, A, B, solver=None, name=None):
         eye = IdentityOperator(A.source)
         super().__init__([[alpha * eye, beta * eye],
                           [B, A]],
-                          name=name)
+                          solver=solver, name=name)
         self.__auto_init(locals())
 
     def apply(self, U, mu=None):
@@ -324,26 +337,22 @@ class SecondOrderModelOperator(BlockOperator):
                     self.beta.conjugate() * V.blocks[0] + self.A.apply_adjoint(V.blocks[1], mu=mu)]
         return self.source.make_array(U_blocks)
 
-    def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
-        assert V in self.range
-        assert initial_guess is None or initial_guess in self.source and len(initial_guess) == len(V)
+    def _apply_inverse(self, V, mu, initial_guess):
         aAmbB = (self.alpha * self.A - self.beta * self.B).assemble(mu=mu)
-        aAmbB_V1 = aAmbB.apply_inverse(V.blocks[1], least_squares=least_squares)
-        aAmbB_A_V0 = aAmbB.apply_inverse(self.A.apply(V.blocks[0], mu=mu), least_squares=least_squares)
-        aAmbB_B_V0 = aAmbB.apply_inverse(self.B.apply(V.blocks[0], mu=mu), least_squares=least_squares)
+        aAmbB_V1 = aAmbB.apply_inverse(V.blocks[1])
+        aAmbB_A_V0 = aAmbB.apply_inverse(self.A.apply(V.blocks[0], mu=mu))
+        aAmbB_B_V0 = aAmbB.apply_inverse(self.B.apply(V.blocks[0], mu=mu))
         U_blocks = [aAmbB_A_V0 - self.beta * aAmbB_V1,
                     self.alpha * aAmbB_V1 - aAmbB_B_V0]
-        return self.source.make_array(U_blocks)
+        return self.source.make_array(U_blocks), {}
 
-    def apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
-        assert U in self.source
-        assert initial_guess is None or initial_guess in self.range and len(initial_guess) == len(U)
+    def _apply_inverse_adjoint(self, U, mu, initial_guess):
         aAmbB = (self.alpha * self.A - self.beta * self.B).assemble(mu=mu)
-        aAmbB_U0 = aAmbB.apply_inverse_adjoint(U.blocks[0], least_squares=least_squares)
-        aAmbB_U1 = aAmbB.apply_inverse_adjoint(U.blocks[1], least_squares=least_squares)
+        aAmbB_U0 = aAmbB.apply_inverse_adjoint(U.blocks[0])
+        aAmbB_U1 = aAmbB.apply_inverse_adjoint(U.blocks[1])
         V_blocks = [self.A.apply_adjoint(aAmbB_U0, mu=mu) - self.B.apply_adjoint(aAmbB_U1, mu=mu),
                     self.alpha.conjugate() * aAmbB_U1 - self.beta.conjugate() * aAmbB_U0]
-        return self.range.make_array(V_blocks)
+        return self.range.make_array(V_blocks), {}
 
     def assemble(self, mu=None):
         A = self.A.assemble(mu)
@@ -351,4 +360,4 @@ class SecondOrderModelOperator(BlockOperator):
         if A == self.A and B == self.B:
             return self
         else:
-            return self.__class__(self.alpha, self.beta, A, B)
+            return type(self)(self.alpha, self.beta, A, B, solver=self.solver)

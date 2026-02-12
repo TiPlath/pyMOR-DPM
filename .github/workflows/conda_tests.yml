@@ -42,20 +42,20 @@ jobs:
       matrix:
         os:
           - ubuntu-22.04
-          - macos-13
+          - macos-15
           - windows-2022
         python:
-          - '3.9'
+          - '3.10'
           - '3.13'
         include:
           - os: ubuntu-22.04
             prefix: /usr/share/miniconda3/envs/pyMOR-ci
             environment_file: conda-linux-64.lock
-          - os: macos-13
+          - os: macos-15
             prefix: /Users/runner/miniconda3/envs/pyMOR-ci
             environment_file: conda-osx-64.lock
-          - os: macos-13
-            python: 3.9
+          - os: macos-15
+            python: 3.10
             prefix: /Users/runner/miniconda3/envs/pyMOR-ci
             environment_file: conda-osx-64.lock
           - os: windows-2022
@@ -104,3 +104,26 @@ jobs:
         with:
           name: coverage_html
           path: coverage_html
+  coverage_to_codecov:
+    name: Report Coverage to codecov.io
+    runs-on: ubuntu-22.04
+    needs:
+      - miniconda
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage_results_xml *
+          merge-multiple: true
+          path: ./reports/
+      # Upload to codecov with an API token to avoid upload failures
+      # See https://github.com/codecov/codecov-action/issues/837.
+      - uses: codecov/codecov-action@v4
+        name: Upload coverage
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: github_actions
+          name: github_actions
+          fail_ci_if_error: true
+          verbose: true
+          directory: ./reports/
