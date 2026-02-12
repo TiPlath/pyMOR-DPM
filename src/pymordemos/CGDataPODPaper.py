@@ -11,8 +11,9 @@ from matplotlib import ticker
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 from sklearn.model_selection import train_test_split
 
+from pymor.algorithms.ml.nn import NeuralNetworkRegressor
 from pymor.basic import *
-from pymor.reductors.neural_network import NeuralNetworkReductor
+from pymor.reductors.data_driven import DataDrivenPODReductor, DataDrivenReductor
 from pymor.vectorarrays.interface import VectorArray
 
 torch.manual_seed(42)
@@ -153,6 +154,9 @@ class SimData:
         return NumpyVectorSpace.from_numpy(self.test_data.reshape((self.test_data.shape[0], -1)).T)
 
     # --- parameters ---
+    def parse_all_params(self):
+        return [self._param_template.parse(p) for p in self.parameters]
+
     def parse_train_params(self):
         return [self._param_template.parse(p) for p in self.train_params]
 
@@ -170,7 +174,7 @@ class MORResult:
     singular_values: np.ndarray
     coefficients: VectorArray | None = None  # pyMOR VectorArray of POD coefficients
     pca_mean: float | None = None
-    reductor: NeuralNetworkReductor | None = None
+    reductor: DataDrivenPODReductor | None = None
     rom: object | None = None
     # error metrics (relative l2-norm)
     pod_errors: np.ndarray | None = None              # shape (n_snapshots)
@@ -196,7 +200,8 @@ class PODNNPipeline:
         pod_result = self.apply_pod(n_modes=modes, compute_pod_with_training_data=compute_pod_with_training_data)
 
         # Train NN with train/val subset
-        self.reduce_with_nn(pod_result, ann_rel_l2_err=1.0)
+        val_ratio = 1-train_size/len(self.sim_data.data_permutation)
+        self.reduce_with_nn(pod_result, ann_rel_l2_err=1.0, validation_ratio=val_ratio)
 
         # Compute POD and NN errors once (train, val, test at once)
         self.compute_pod_error(pod_result)
@@ -261,7 +266,7 @@ class PODNNPipeline:
         self.results.append(result)
         return result
 
-    def reduce_with_nn(self, mor_result: MORResult, ann_rel_l2_err: float = 1e-2):
+    def reduce_with_nn(self, mor_result: MORResult, ann_rel_l2_err: float = 1e-2, validation_ratio=0.2):
         """
         Train a neural network reduced-order model for the given POD basis which was
         computed with a specific epsilon.
@@ -276,16 +281,13 @@ class PODNNPipeline:
 
         # ann_mse="like_basis" would be an ann_mse of: (np.sum(Phi_s**2) - np.sum(singular_values**2)) / 100.
         # but with this high error threshold it does not find a neural network below the prescribed error.
-        reductor = NeuralNetworkReductor(
-            training_parameters=self.sim_data.parse_train_params(),
-            training_snapshots=self.sim_data.train_snapshots(),
-            validation_parameters=self.sim_data.parse_val_params(),
-            validation_snapshots=self.sim_data.val_snapshots(),
-            reduced_basis=mor_result.modes,
-            ann_mse=ann_mse)
+        reductor = DataDrivenPODReductor(
+            training_parameters=self.sim_data.parse_all_params(),
+            training_snapshots=self.sim_data.all_snapshots(),
+            regressor=NeuralNetworkRegressor(validation_ratio=validation_ratio, tol=ann_mse))
         # no lr_scheduler due to LBFGS, learning_rate = 1
         mor_result.reductor = reductor
-        mor_result.rom = reductor.reduce(restarts=10, log_loss_frequency=10, lr_scheduler=None)
+        mor_result.rom = reductor.reduce(restarts=5, log_loss_frequency=10, lr_scheduler=None)
 #TODO TEST PCA
     # reconstruction and error computation by solving the ROM for given parameters
     # or by a projection onto the POD modes
@@ -967,41 +969,21 @@ class PODNNPipeline:
         relative_field_noise_std = np.std(relative_field_noise_per_sim)
 
         # -----------------------------
-        # F) Train / validation split to train the neural network reductor
+        # F) Build, train NN reductor and predict mean coefficients for all parameters
         # -----------------------------
-        rng = np.random.default_rng(123)
-        indices = np.arange(nFiles)
-        rng.shuffle(indices)
-        n_train = int(0.8 * nFiles)
-        train_idx = indices[:n_train]
-        val_idx = indices[n_train:]
-
+        # create unique parameter array
         params_unique = np.unique(V.parameters)
-        train_params = [params_unique[i] for i in train_idx]
-        val_params = [params_unique[i] for i in val_idx]
         # Parse into pyMOR parameters
-        train_params = [Parameters({"VolumeRatio": 1}).parse(p) for p in train_params]
-        val_params = [Parameters({"VolumeRatio": 1}).parse(p) for p in val_params]
+        params = [Parameters({"VolumeRatio": 1}).parse(p) for p in params_unique]
+        # prepare VectorArray for snapshots (using the mean field per parameter)
+        all_snapshots = V_mean_vec  # (space_dim, nFiles)
 
-        # prepare VectorArrays for training/validation snapshots (using the mean field per parameter)
-        train_snap_mat = V_mean_flat[train_idx].T  # (space_dim, n_train)
-        val_snap_mat = V_mean_flat[val_idx].T  # (space_dim, n_val)
-        train_snapshots = NumpyVectorSpace.from_numpy(train_snap_mat)
-        val_snapshots = NumpyVectorSpace.from_numpy(val_snap_mat)
-
-        # -----------------------------
-        # G) Build, train NN reductor and predict mean coefficients for all parameters
-        # -----------------------------
-        reductor = NeuralNetworkReductor(
-            training_parameters=train_params,
-            training_snapshots=train_snapshots,
-            validation_parameters=val_params,
-            validation_snapshots=val_snapshots,
-            reduced_basis=modes_mean,
-            ann_mse=1e-1
+        reductor = DataDrivenPODReductor(
+            training_parameters=params,
+            training_snapshots=all_snapshots,
+            regressor=NeuralNetworkRegressor(validation_ratio=0.3)
         )
-
-        rom = reductor.reduce(restarts=10, log_loss_frequency=10, lr_scheduler=None)
+        rom = reductor.reduce(restarts=5, log_loss_frequency=10, lr_scheduler=None)
 
         # predicted mean reduced coefficients for each unique parameter
         a_pred_mean = np.zeros((nFiles, n_modes))
@@ -1009,7 +991,7 @@ class PODNNPipeline:
             a_pred_mean[i, :] = rom.solve(mu).to_numpy()[:, -1]
 
         # -----------------------------
-        # H) RMSE per mode (and normalized RMSE)
+        # G) RMSE per mode (and normalized RMSE)
         # -----------------------------
         # RMS of true mean coefficients per mode (normalization for relative metrics)
         rms_mean_coeff_per_mode = np.sqrt(np.mean(mean_coeffs ** 2, axis=0))
@@ -1021,7 +1003,7 @@ class PODNNPipeline:
         relative_rmse_per_mode = rmse_per_mode / rms_mean_coeff_per_mode
 
         # -----------------------------
-        # I) Plot per-mode results
+        # H) Plot per-mode results
         # -----------------------------
         modes = np.arange(1, n_modes + 1)
         plt.figure()
