@@ -816,21 +816,22 @@ class PODNNPipeline:
         plt.tight_layout()
         plt.savefig("Errors_pod_line.eps", bbox_inches="tight")
         plt.savefig("Errors_pod_line.png", bbox_inches="tight")
-
-        plt.figure()
-        contour = plt.contourf(X, Y, errors_gap, levels=levels, cmap=cmap,
-                               norm=colors.LogNorm(vmin=vmin, vmax=vmax))
-        cbar = plt.colorbar(contour, ticks=ticks, label=r"$E^{\mathrm{gap}}_{\mathrm{m}}$ [-]")
-        cbar.formatter = ticker.LogFormatterSciNotation(base=10.0)
-        cbar.update_ticks()
-        cbar.ax.minorticks_off()
-
-        plt.xlabel(r"$M_{train}$")
-        plt.ylabel(r"$n$")
-        plt.tight_layout()
-        plt.savefig("Errors_gap.eps", bbox_inches="tight")
-        plt.savefig("Errors_gap.png", bbox_inches="tight")
         plt.show()
+
+        # plt.figure()
+        # contour = plt.contourf(X, Y, errors_gap, levels=levels, cmap=cmap,
+        #                        norm=colors.LogNorm(vmin=vmin, vmax=vmax))
+        # cbar = plt.colorbar(contour, ticks=ticks, label=r"$E^{\mathrm{gap}}_{\mathrm{m}}$ [-]")
+        # cbar.formatter = ticker.LogFormatterSciNotation(base=10.0)
+        # cbar.update_ticks()
+        # cbar.ax.minorticks_off()
+        #
+        # plt.xlabel(r"$M_{train}$")
+        # plt.ylabel(r"$n$")
+        # plt.tight_layout()
+        # plt.savefig("Errors_gap.eps", bbox_inches="tight")
+        # plt.savefig("Errors_gap.png", bbox_inches="tight")
+        # plt.show()
 
     def plot_mixing_index_over_parameters(self, pipeline_bulk):
         # Load bulk field data (Phi_g)
