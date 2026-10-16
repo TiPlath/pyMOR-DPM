@@ -2,24 +2,40 @@
 # Copyright pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
 
-"""Demo of the VKOGA algorithm for function approximation with a two-dimensional input."""
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
-from typer import Option, run
+from cyclopts import App
 
 from pymor.algorithms.ml.vkoga import GaussianKernel, VKOGARegressor
-from pymor.tools.typer import Choices
 
+app = App(help_on_error=True)
 
-def main(num_training_points: int = Option(100, help='Number of training points in the weak greedy algorithm.'),
-         greedy_criterion: Choices('fp f p') = Option('fp', help='Selection criterion for the greedy algorithm.'),
-         max_centers: int = Option(40, help='Maximum number of selected centers in the greedy algorithm.'),
-         tol: float = Option(1e-6, help='Tolerance for the weak greedy algorithm.'),
-         reg: float = Option(1e-12, help='Regularization parameter for the kernel interpolation.'),
-         length_scale: float = Option(1.0, help='The length scale parameter of the kernel. '
-                                                'Only used when `kernel = diagonal`.')):
-    """Approximates a function with 2d input and 2d output from training data using VKOGA."""
+@app.default
+def main(num_training_points: int = 100,
+         greedy_criterion: Literal['fp', 'f', 'p'] = 'fp',
+         max_centers: int = 40,
+         tol: float = 1e-6,
+         reg: float = 1e-12,
+         length_scale: float = 1.0):
+    """Approximates a function with 2d input and 2d output from training data using VKOGA.
+
+    Parameters
+    ----------
+    num_training_points
+        Number of training points in the weak greedy algorithm.
+    greedy_criterion
+        Selection criterion for the greedy algorithm.
+    max_centers
+        Maximum number of selected centers in the greedy algorithm.
+    tol
+        Tolerance for the weak greedy algorithm.
+    reg
+        Regularization parameter for the kernel interpolation.
+    length_scale
+        The length scale parameter of the kernel. Only used when `kernel = diagonal`.
+    """
     # define kernel
     kernel = GaussianKernel(length_scale)
 
@@ -54,18 +70,18 @@ def main(num_training_points: int = Option(100, help='Number of training points 
     axes[0].contourf(X1t, X2t, F_pred.reshape(X1t.shape), levels=20, cmap='coolwarm')
     axes[0].scatter(X_train[regressor._surrogate._centers_idx, 0], X_train[regressor._surrogate._centers_idx, 1],
                     c='k', s=40, label='Centers')
-    axes[0].set_title('Prediction s_n')
-    axes[0].set_xlabel('x₁')
-    axes[0].set_ylabel('x₂')
+    axes[0].set_title(r'Prediction $s_n$')
+    axes[0].set_xlabel(r'$x_1$')
+    axes[0].set_ylabel(r'$x_2$')
     axes[0].legend()
 
     # plot reference
     axes[1].contourf(X1t, X2t, F_true.reshape(X1t.shape), levels=20, cmap='coolwarm')
     axes[1].scatter(X_train[regressor._surrogate._centers_idx, 0], X_train[regressor._surrogate._centers_idx, 1],
                     c='k', s=40, label='Centers')
-    axes[1].set_title('Reference f')
-    axes[1].set_xlabel('x₁')
-    axes[1].set_ylabel('x₂')
+    axes[1].set_title(r'Reference $f$')
+    axes[1].set_xlabel(r'$x_1$')
+    axes[1].set_ylabel(r'$x_2$')
     axes[1].legend()
 
     # plot error surface
@@ -73,9 +89,9 @@ def main(num_training_points: int = Option(100, help='Number of training points 
     axes[2].scatter(X_train[regressor._surrogate._centers_idx, 0], X_train[regressor._surrogate._centers_idx, 1],
                     c='r', s=30, label='Centers')
     axes[2].scatter(X_train[:, 0], X_train[:, 1], c='k', s=10, label='Training points')
-    axes[2].set_title('|f - s_n| error surface')
-    axes[2].set_xlabel('x₁')
-    axes[2].set_ylabel('x₂')
+    axes[2].set_title(r'$|f - s_n|$ error surface')
+    axes[2].set_xlabel('$x_1$')
+    axes[2].set_ylabel('$x_2$')
     axes[2].legend()
     fig.colorbar(c, ax=axes[2], shrink=0.8)
 
@@ -84,4 +100,4 @@ def main(num_training_points: int = Option(100, help='Number of training points 
 
 
 if __name__ == '__main__':
-    run(main)
+    app()

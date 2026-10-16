@@ -77,7 +77,13 @@ class RectDomain(DomainDescription):
             if bt is not None and bt not in KNOWN_BOUNDARY_TYPES:
                 self.logger.warning(f'Unknown boundary type: {bt}')
         domain = np.array(domain)
-        self.__auto_init(locals())
+
+        self.domain = domain
+        self.left = left
+        self.right = right
+        self.top = top
+        self.bottom = bottom
+
         self.boundary_types = frozenset({left, right, top, bottom})
 
     @property
@@ -136,7 +142,11 @@ class CylindricalDomain(DomainDescription):
             if bt is not None and bt not in KNOWN_BOUNDARY_TYPES:
                 self.logger.warning(f'Unknown boundary type: {bt}')
         domain = np.array(domain)
-        self.__auto_init(locals())
+
+        self.domain = domain
+        self.top = top
+        self.bottom = bottom
+
         self.boundary_types = frozenset({top, bottom})
 
     @property
@@ -241,7 +251,11 @@ class LineDomain(DomainDescription):
             if bt is not None and bt not in KNOWN_BOUNDARY_TYPES:
                 self.logger.warning(f'Unknown boundary type: {bt}')
         domain = np.array(domain)
-        self.__auto_init(locals())
+
+        self.domain = domain
+        self.left = left
+        self.right = right
+
         self.boundary_types = frozenset({left, right})
 
     @property
@@ -280,7 +294,7 @@ class PolygonalDomain(DomainDescription):
     ----------
     points
         2D |NumPy array| points [x_0, x_1] that describe the polygonal chain that bounds the domain.
-    boundary_types
+    boundary_description
         Either a dictionary `{boundary_type: [i_0, ...], boundary_type: [j_0, ...], ...}`
         with `i_0, ...` being the ids of boundary segments for a given boundary type
         (`0` is the line connecting point `0` to `1`, `1` is the line connecting point `1` to `2`
@@ -298,7 +312,7 @@ class PolygonalDomain(DomainDescription):
 
     dim = 2
 
-    def __init__(self, points, boundary_types, holes=None):
+    def __init__(self, points, boundary_description, holes=None):
         points = np.asarray(points)
         assert points.ndim == 2
         assert points.shape[-1] == 2
@@ -308,7 +322,7 @@ class PolygonalDomain(DomainDescription):
         assert all(h.ndim == 2 for h in holes)
         assert all(h.shape[-1] == 2 for h in holes)
 
-        if isinstance(boundary_types, dict):
+        if isinstance(boundary_description, dict):
             pass
         # if the boundary types are not given as a dict, try to evaluate at
         # the edge centers to get a dict.
@@ -319,17 +333,20 @@ class PolygonalDomain(DomainDescription):
                 for index in range(len(curve)):
                     p0, p1 = curve[index], curve[index % len(curve)]
                     center = [(p0[0]+p1[0])/2, (p0[1]+p1[1])/2]
-                    boundary_types_dict[boundary_types(center)].append(segment_id)
+                    boundary_types_dict[boundary_description(center)].append(segment_id)
                     segment_id += 1
 
-            boundary_types = dict(boundary_types_dict)
+            boundary_description = dict(boundary_types_dict)
 
-        for bt in boundary_types:
+        for bt in boundary_description:
             if bt is not None and bt not in KNOWN_BOUNDARY_TYPES:
                 self.logger.warning(f'Unknown boundary type: {bt}')
 
-        self.__auto_init(locals())
+        self.points = points
+        self.boundary_description = boundary_description
+        self.holes = holes
 
+        self.boundary_types = frozenset(boundary_description.keys())
 
 class CircularSectorDomain(PolygonalDomain):
     """Describes a circular sector domain of variable radius.
@@ -368,16 +385,20 @@ class CircularSectorDomain(PolygonalDomain):
                        np.linspace(start=0, stop=angle, num=num_points, endpoint=True)])
 
         if arc == radii:
-            boundary_types = {arc: list(range(1, len(points)+1))}
+            boundary_description = {arc: list(range(1, len(points)+1))}
         else:
-            boundary_types = {arc: list(range(2, len(points)))}
-            boundary_types.update({radii: [1, len(points)]})
+            boundary_description = {arc: list(range(2, len(points)))}
+            boundary_description.update({radii: [1, len(points)]})
 
-        if None in boundary_types:
-            del boundary_types[None]
+        if None in boundary_description :
+            del boundary_description[None]
 
-        super().__init__(points, boundary_types)
-        self.__auto_init(locals())
+        super().__init__(points, boundary_description)
+        self.angle = angle
+        self.radius = radius
+        self.arc = arc
+        self.radii = radii
+        self.num_points = num_points
 
 
 class DiscDomain(PolygonalDomain):
@@ -405,7 +426,9 @@ class DiscDomain(PolygonalDomain):
 
         points = [[radius*np.cos(t), radius*np.sin(t)] for t in
                   np.linspace(start=0, stop=2*np.pi, num=num_points, endpoint=False)]
-        boundary_types = {} if boundary is None else {boundary: list(range(1, len(points)+1))}
+        boundary_description = {} if boundary is None else {boundary: list(range(1, len(points)+1))}
 
-        super().__init__(points, boundary_types)
-        self.__auto_init(locals())
+        super().__init__(points, boundary_description)
+        self.radius = radius
+        self.boundary = boundary
+        self.num_points = num_points

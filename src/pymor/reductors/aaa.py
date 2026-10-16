@@ -7,18 +7,20 @@ import itertools
 import numpy as np
 import scipy.linalg as spla
 
+from pymor.algorithms.loewner import complete_conjugate_pairs, loewner_matrix_nd, sample_transfer_function
 from pymor.bindings.scipy import svd_lapack_driver
 from pymor.core.base import BasicObject
 from pymor.models.transfer_function import TransferFunction
+from pymor.parameters.base import Parameters
 from pymor.tools.random import new_rng
 
 
 class PAAAReductor(BasicObject):
     """Reductor implementing the parametric AAA algorithm.
 
-    The reductor implements the parametric AAA algorithm and can be used either with
-    data or a given full-order model, which can be a |TransferFunction| or any model which
-    has a `transfer_function` attribute. MIMO and non-parametric data is accepted. See
+    The reductor implements the parametric AAA algorithm using sampled data. Use
+    :meth:`generate_samples` to generate data from a model beforehand.
+    MIMO and non-parametric data is accepted. See
     :cite:`NST18` for the non-parametric and :cite:`CRBG23` for the parametric version of
     the algorithm. The reductor computes approximations based on the multivariate barycentric
     form :math:`H(s,p,...)` (see :func:`~pymor.reductors.aaa.make_bary_func`), where
@@ -33,19 +35,18 @@ class PAAAReductor(BasicObject):
     Parameters
     ----------
     sampling_values
-        Values where sample data has been evaluated or the full-order model should be evaluated.
+        Values where sample data has been evaluated.
         Sampling values are represented as a list of |NumPy arrays| such that `sampling_values[i]`
         corresponds to sampling values of the `i`-th variable given as a |NumPy array|. The first
         variable is the Laplace variable. In the non-parametric case (i.e., the only variable is
         the Laplace variable) this can also be a |NumPy array| representing the sampling values.
-    samples_or_fom
-        Can be either a full-order model (|TransferFunction| or |Model| with a `transfer_function`
-        attribute) or data sampled at the values specified in `sampling_values` as a |NumPy array|.
+    samples
+        Data sampled at the values specified in `sampling_values` as a |NumPy array|.
         Samples are represented as a tensor `S`. E.g., for 3 inputs `S[i,j,k]` corresponds to the
         sampled value at `(sampling_values[0][i],sampling_values[1][j],sampling_values[2][k])`.
-        The samples (i.e., `S[i,j,k]`) need to be provided as 2-dimensional |NumPy arrays|. E.g.,
+        The samples (i.e., `S[i,j,k]`) can be scalars or 2-dimensional |NumPy arrays|. E.g.,
         in the MIMO case `S[i,j,k]` represents a matrix of dimension `dim_output` times `dim_input`.
-    conjugate
+    force_real
         Whether to compute complex conjugates of first sampling variables and enforce
         interpolation in complex conjugate pairs (allows for constructing real system matrices).
     nsp_tol
@@ -58,6 +59,10 @@ class PAAAReductor(BasicObject):
         the post-processing procedure computes an interpolant of minimal order.
     L_rk_tol
         Tolerance for ranks of 1-D Loewner matrices computed in post-processing.
+    parameters
+        Optional |Parameters| or parameter-dimension mapping for the resulting transfer function.
+        Defaults to a single vector parameter named `p`. Parameter sampling axes follow the
+        order used by :meth:`~pymor.parameters.base.Mu.to_numpy`.
 
     Attributes
     ----------
@@ -67,57 +72,36 @@ class PAAAReductor(BasicObject):
         represents a list of all interpolated samples of the `i`-th variable.
     """
 
-    def __init__(self, sampling_values, samples_or_fom, conjugate=True, nsp_tol=1e-16, post_process=True,
-                 L_rk_tol=1e-8):
+    generate_samples = staticmethod(sample_transfer_function)
+
+    def __init__(self, sampling_values, samples, force_real=True, nsp_tol=1e-16, post_process=True,
+                 L_rk_tol=1e-8, parameters=None):
         if isinstance(sampling_values, np.ndarray):
             sampling_values = [sampling_values]
         assert isinstance(sampling_values, list)
         assert all(isinstance(sv, np.ndarray) for sv in sampling_values)
-        if isinstance(samples_or_fom, TransferFunction) or hasattr(samples_or_fom, 'transfer_function'):
-            fom = samples_or_fom
-            if not isinstance(samples_or_fom, TransferFunction):
-                fom = fom.transfer_function
-            self.num_vars = 1 + fom.parameters.dim
-
-            assert len(sampling_values) == self.num_vars
-            self._parameters = fom.parameters
-            self.samples = np.empty([len(sv) for sv in sampling_values] + [fom.dim_output, fom.dim_input],
-                                    dtype=sampling_values[0].dtype)
-            for idx, vals in zip(np.ndindex(self.samples.shape[:-2]),
-                                 itertools.product(*sampling_values), strict=True):
-                params = fom.parameters.parse(vals[1:])
-                self.samples[idx] = fom.eval_tf(vals[0], mu=params)
-            if fom.dim_input == fom.dim_output == 1:
-                self.samples = self.samples.reshape(self.samples.shape[:-2])
-        else:
-            self.samples = samples_or_fom
-            # SISO case requires reshape
-            if self.samples.shape[-2:] == (1, 1):
-                self.samples = self.samples.reshape(self.samples.shape[:-2])
-            self.num_vars = len(sampling_values)
-            self._parameters = {'p': self.num_vars-1}
+        sampling_values = list(sampling_values)
+        self.num_vars = len(sampling_values)
+        self.samples = np.asarray(samples)
+        assert self.samples.ndim in (self.num_vars, self.num_vars + 2), \
+            'samples must contain sample data; use generate_samples to sample a model.'
+        assert self.samples.shape[:self.num_vars] == tuple(map(len, sampling_values)), \
+            'samples must match the sampling grid.'
+        if self.samples.ndim == self.num_vars + 2 and self.samples.shape[-2:] == (1, 1):
+            self.samples = self.samples.reshape(self.samples.shape[:-2])
+        self._parameters = Parameters({'p': self.num_vars - 1} if parameters is None else parameters)
+        assert self._parameters.dim == self.num_vars - 1, \
+            'parameters must match the number of parameter sampling axes.'
 
         # add complex conjugate samples
-        if conjugate:
-            s_conj_list = []
-            samples_conj_list = None
-            for i, s in enumerate(sampling_values[0]):
-                if s.conj() not in sampling_values[0]:
-                    s_conj_list.append(s.conj())
-                    if samples_conj_list is None:
-                        samples_conj_list = self.samples[i, None].conj()
-                    else:
-                        samples_conj_list = np.concatenate((samples_conj_list, self.samples[i, None].conj()))
-            if s_conj_list:
-                sampling_values[0] = np.append(sampling_values[0], s_conj_list)
-                self.samples = np.concatenate((self.samples, samples_conj_list))
+        if force_real:
+            sampling_values[0], self.samples = complete_conjugate_pairs(sampling_values[0], self.samples)
 
         # Transform samples for MIMO case
         if len(self.samples.shape) != len(sampling_values):
             assert len(self.samples.shape) == len(sampling_values) + 2
             self._dim_input = self.samples.shape[-1]
             self._dim_output = self.samples.shape[-2]
-            samples_T = np.empty(self.samples.shape[:-2], dtype=self.samples.dtype)
             rng = new_rng(0)
             if any(np.iscomplex(sampling_values[0])):
                 w = 1j * rng.normal(scale=np.sqrt(2)/2, size=(self._dim_output,)) \
@@ -136,7 +120,12 @@ class PAAAReductor(BasicObject):
             self._dim_input = 1
             self._dim_output = 1
 
-        self.__auto_init(locals())
+        self.sampling_values = sampling_values
+        self.force_real = force_real
+        self.nsp_tol = nsp_tol
+        self.post_process = post_process
+        self.L_rk_tol = L_rk_tol
+        self.parameters = parameters
 
     def reduce(self, tol=1e-7, itpl_part=None, max_itpl=None):
         """Reduce using p-AAA.
@@ -216,13 +205,13 @@ class PAAAReductor(BasicObject):
                     self.itpl_part[i].append(greedy_idx[i])
 
                     # perform double interpolation step to allow real state-space representation
-                    if i == 0 and self.conjugate and np.imag(svs[i][greedy_idx[i]]) != 0:
+                    if i == 0 and self.force_real and np.imag(svs[i][greedy_idx[i]]) != 0:
                         conj_sample = np.conj(svs[i][greedy_idx[i]])
                         conj_idx = np.where(svs[0] == conj_sample)[0]
                         self.itpl_part[i].append(conj_idx[0])
 
             # solve LS problem
-            L = full_nd_loewner(samples, svs, self.itpl_part)
+            L = loewner_matrix_nd(svs, samples, self.itpl_part)
 
             _, S, V = spla.svd(L, full_matrices=False, lapack_driver=svd_lapack_driver())
             VH = V.T.conj()
@@ -283,7 +272,9 @@ class PAAAReductor(BasicObject):
             for idc in itertools.product(*(range(s) for s in shapes)):
                 l_idc = list(idc)
                 l_idc.insert(i, slice(None))
-                L = nd_loewner(self.samples[tuple(l_idc)], [self.sampling_values[i]], [self.itpl_part[i]])
+                L = loewner_matrix_nd(
+                    [self.sampling_values[i]], self.samples[tuple(l_idc)], [self.itpl_part[i]]
+                )
                 rk = np.linalg.matrix_rank(L, tol=self.L_rk_tol)
                 if rk > max_rk:
                     max_rk = rk
@@ -292,111 +283,19 @@ class PAAAReductor(BasicObject):
         denom = np.prod([len(self.itpl_part[k])-max_rks[k] for k in range(len(self.itpl_part))])
         if denom == 0 or d_nsp % denom != 0:
             return None
-        max_rks[max_idx] = len(self.itpl_part[max_idx]) - d_nsp / denom
-        max_rks[max_idx] = round(max_rks[max_idx])
+        max_rks[max_idx] = len(self.itpl_part[max_idx]) - d_nsp // denom
+        if max_rks[max_idx] < 0:
+            return None
         for i in range(len(max_rks)):
             self.itpl_part[i] = self.itpl_part[i][0:max_rks[i]+1]
 
         # solve LS problem
-        L = full_nd_loewner(self.samples, self.sampling_values, self.itpl_part)
+        L = loewner_matrix_nd(self.sampling_values, self.samples, self.itpl_part)
         _, S, V = spla.svd(L, full_matrices=False, lapack_driver=svd_lapack_driver())
         VH = np.conj(V.T)
-        coefs = VH[:, -1:]
+        coefs = VH[:, -1]
 
         return coefs
-
-
-def nd_loewner(samples, svs, itpl_part):
-    """Compute higher-dimensional Loewner matrix using only LS partitions.
-
-    .. note::
-       For non-parametric data this is simply the regular Loewner matrix.
-
-    Parameters
-    ----------
-    samples
-        Tensor of samples (see :class:`PAAAReductor`).
-    svs
-        List of sampling values (see :class:`PAAAReductor`).
-    itpl_part
-        Nested list such that `itpl_part[i]` is a list of indices for interpolated
-        sampling values in `svs[i]`.
-
-    Returns
-    -------
-    L
-        (Parametric) Loewner matrix based only on LS partition.
-    """
-    d = len(samples.shape)
-    ls_part = [sorted(set(range(len(s))) - set(p)) for p, s in zip(itpl_part, svs, strict=True)]
-
-    sdpd = 1
-    for i in range(d):
-        p0 = svs[i]
-        p = p0[itpl_part[i]]
-        ph = p0[ls_part[i]]
-        pd = ph[:, np.newaxis] - p
-        sdpd = np.kron(sdpd, pd)
-    samples0 = samples[np.ix_(*itpl_part)].reshape(-1)
-    samples1 = samples[np.ix_(*ls_part)].reshape(-1, 1)
-    samplesd = samples1 - samples0
-
-    return samplesd / sdpd
-
-
-def full_nd_loewner(samples, svs, itpl_part):
-    """Compute higher-dimensional Loewner matrix using all combinations of partitions.
-
-    .. note::
-       For non-parametric data this is simply the regular Loewner matrix.
-
-    Parameters
-    ----------
-    samples
-        Tensor of samples (see :class:`PAAAReductor`).
-    svs
-        List of sampling values (see :class:`PAAAReductor`).
-    itpl_part
-        Nested list such that `itpl_part[i]` is a list of indices for interpolated
-        sampling values in `svs[i]`.
-
-    Returns
-    -------
-    L
-        (Parametric) Loewner matrix based on all combinations of partitions.
-    """
-    L = nd_loewner(samples, svs, itpl_part)
-    range_S = range(len(svs))
-
-    # consider all combinations of variables coming from interpolation vs LS partition
-    # `i_itpl[i]` is `True` if we are considering a partitioning where the `i`-th parameter
-    # is interpolated
-    for i_itpl in itertools.product(*([False, True] for _ in range_S)):
-
-        # skip cases corresponding to all interpolated or all LS fit
-        if not any(i_itpl) or all(i_itpl):
-            continue
-
-        svs0 = [svs[k] for k in range_S if i_itpl[k]]
-        itpl_part0 = [itpl_part[k] for k in range_S if i_itpl[k]]
-
-        for j in itertools.product(*(itpl_part[k] for k in range_S if not i_itpl[k])):
-            l_j = list(j)
-            for ii in range(len(i_itpl)):
-                if i_itpl[ii]:
-                    l_j.insert(ii, slice(None))
-            samples0 = samples[tuple(l_j)]
-            T_mat = 1
-            for k in range_S:
-                if i_itpl[k]:
-                    T_new = np.eye(len(itpl_part[k]))
-                else:
-                    idx = np.where(np.array(itpl_part[k]) == l_j[k])[0][0]
-                    T_new = np.eye(1, len(itpl_part[k]), idx)
-                T_mat = np.kron(T_mat, T_new)
-            LL = nd_loewner(samples0, svs0, itpl_part0)
-            L = np.vstack([L, LL @ T_mat])
-    return L
 
 
 def make_bary_func(itpl_nodes, itpl_vals, coefs, removable_singularity_tol=1e-14):
@@ -441,7 +340,7 @@ def make_bary_func(itpl_nodes, itpl_vals, coefs, removable_singularity_tol=1e-14
             d_zero = d[np.abs(d) < removable_singularity_tol]
             if len(d_zero) > 0:
                 d_min_idx = np.argmin(np.abs(d))
-                d = np.eye(1, len(d), d_min_idx)
+                d = np.eye(len(d))[d_min_idx]
             else:
                 d = 1 / d
             pd = np.kron(pd, d)

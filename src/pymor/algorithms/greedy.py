@@ -3,6 +3,7 @@
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
 
 import time
+from itertools import count
 
 import numpy as np
 
@@ -11,6 +12,7 @@ from pymor.core.exceptions import ExtensionError
 from pymor.core.logger import getLogger
 from pymor.parallel.dummy import dummy_pool
 from pymor.parallel.interface import RemoteObject
+from pymor.tools.progress import track
 
 
 def weak_greedy(surrogate, training_set, atol=None, rtol=None, max_extensions=None, pool=None):
@@ -23,7 +25,7 @@ def weak_greedy(surrogate, training_set, atol=None, rtol=None, max_extensions=No
 
     In each iteration of the algorithm, a vector :math:`v_{\mu^*}` from
     :math:`\mathcal{M}` is determined which maximizes the estimated
-    best-approxmiation error w.r.t. the current basis. Then, the basis is
+    best-approximation error w.r.t. the current basis. Then, the basis is
     extended with :math:`v_{\mu^*}`.
 
     The algorithm expects a :class:`surrogate <WeakGreedySurrogate>`, which can
@@ -91,11 +93,10 @@ def weak_greedy(surrogate, training_set, atol=None, rtol=None, max_extensions=No
     if pool:
         training_set = pool.scatter_list(training_set)
 
-    extensions = 0
     max_errs = []
     max_err_mus = []
 
-    while True:
+    for extensions in track(count(), 'Greedy', max_extensions):
         with logger.block('Estimating errors ...'):
             max_err, max_err_mu = surrogate.evaluate(training_set)
             max_errs.append(max_err)
@@ -183,7 +184,7 @@ def rb_greedy(fom, reductor, training_set, use_error_estimator=True, error_norm=
     reductor
         Reductor for reducing the given |Model|. This has to be
         an object with a `reduce` method, such that `reductor.reduce()`
-        yields the reduced model, and an `exted_basis` method,
+        yields the reduced model, and an `extend_basis` method,
         such that `reductor.extend_basis(U, copy_U=False, **extension_params)`
         extends the current reduced basis by the vectors contained in `U`.
         For an example see :class:`~pymor.reductors.coercive.CoerciveRBReductor`.
@@ -243,7 +244,13 @@ class RBSurrogate(WeakGreedySurrogate):
     """
 
     def __init__(self, fom, reductor, use_error_estimator, error_norm, extension_params, pool):
-        self.__auto_init(locals())
+        self.fom = fom
+        self.reductor = reductor
+        self.use_error_estimator = use_error_estimator
+        self.error_norm = error_norm
+        self.extension_params = extension_params
+        self.pool = pool
+
         if use_error_estimator:
             self.remote_fom, self.remote_error_norm, self.remote_reductor = None, None, None
         else:

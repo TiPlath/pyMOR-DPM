@@ -79,7 +79,8 @@ class AssembleLincombRules(RuleTable):
 
     def __init__(self, coefficients, name):
         super().__init__(use_caching=False)
-        self.__auto_init(locals())
+        self.coefficients = coefficients
+        self.name = name
 
     @match_always
     def action_zero_coeff(self, ops):
@@ -246,11 +247,7 @@ class AssembleLincombRules(RuleTable):
         right = cat_arrays([op.right for op, _ in low_rank])
         core = []
         for op, coeff in low_rank:
-            core.append(op.core)
-            if inverted:
-                core[-1] /= coeff
-            else:
-                core[-1] *= coeff
+            core.append(op.core / coeff if inverted else op.core * coeff)
         core = spla.block_diag(*core)
         new_low_rank_op = LowRankOperator(left, core, right, inverted=inverted)
         if len(not_low_rank) == 0:

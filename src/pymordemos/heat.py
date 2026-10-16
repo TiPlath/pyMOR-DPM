@@ -4,9 +4,8 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-from typer import Argument, run
+from cyclopts import App
 
-from pymor.algorithms.lradi import lyap_lrcf_solver_options
 from pymor.algorithms.timestepping import ImplicitEulerTimeStepper
 from pymor.core.config import config
 from pymor.core.logger import set_log_levels
@@ -15,6 +14,8 @@ from pymor.models.iosys import LTIModel, SecondOrderModel
 from pymor.reductors.bt import BRBTReductor, BTReductor, LQGBTReductor
 from pymor.reductors.h2 import IRKAReductor, OneSidedIRKAReductor, TSIAReductor
 from pymor.reductors.mt import MTReductor
+from pymor.solvers.matrix_equations.adi import ADILyapunovSolver
+from pymor.solvers.matrix_equations.default import MatrixEquationSolvers
 
 
 def fom_properties(fom, w, stable_lti=True):
@@ -173,8 +174,10 @@ def run_mor_method(fom, w, reductor, reductor_short_name, r, stable=True, **redu
     rom = reductor.reduce(r, **reduce_kwargs)
     err = fom - rom
     if isinstance(err, LTIModel):
-        solver_options = {'lyap_lrcf': lyap_lrcf_solver_options(lradi_shifts='projection_shifts')['lradi']}
-        err = err.with_(solver_options=solver_options)
+        matrix_equation_solvers = MatrixEquationSolvers(
+            lyapunov_lr=ADILyapunovSolver()
+        )
+        err = err.with_(matrix_equation_solvers=matrix_equation_solvers)
 
     # Errors
     from pymor.models.transfer_function import TransferFunction
@@ -271,9 +274,12 @@ def run_mor_method(fom, w, reductor, reductor_short_name, r, stable=True, **redu
     plt.show()
 
 
+app = App(help_on_error=True, help_format='plaintext')
+
+@app.default
 def main(
-        diameter: float = Argument(0.1, help='Diameter option for the domain discretizer.'),
-        r: int = Argument(5, help='Order of the ROMs.'),
+    diameter: float = 0.1,
+    r: int = 5
 ):
     r"""2D heat equation demo.
 
@@ -291,10 +297,17 @@ def main(
         \end{align*}
 
     where :math:`u(t)` is the input and :math:`y(t)` is the output.
+
+    Parameters
+    ----------
+    diameter
+        Diameter option for the domain discretizer.
+    r
+        Order of the ROMs.
     """
     set_log_levels({
         'pymor.algorithms.gram_schmidt.gram_schmidt': 'WARNING',
-        'pymor.algorithms.lradi.solve_lyap_lrcf': 'WARNING',
+        'pymor.solvers.matrix_equations.adi.ADILyapunovSolver': 'WARNING',
         'pymor.reductors.basic.LTIPGReductor': 'WARNING',
     })
     plt.rcParams['axes.grid'] = True
@@ -303,8 +316,12 @@ def main(
     fom.visualize(fom.solve())
 
     # LTI system
-    solver_options = {'lyap_lrcf': lyap_lrcf_solver_options(lradi_shifts='wachspress_shifts')['lradi']}
-    lti = fom.to_lti().with_(solver_options=solver_options, T=1, time_stepper=ImplicitEulerTimeStepper(100))
+    matrix_equation_solvers = MatrixEquationSolvers(
+        lyapunov_lr=ADILyapunovSolver(adi_shifts='wachspress_shifts')
+    )
+
+    ts = ImplicitEulerTimeStepper(100)
+    lti = fom.to_lti().with_(matrix_equation_solvers=matrix_equation_solvers, T=1, time_stepper=ts)
 
     # System properties
     w = (1e-1, 1e3)
@@ -322,4 +339,4 @@ def main(
 
 
 if __name__ == '__main__':
-    run(main)
+    app()

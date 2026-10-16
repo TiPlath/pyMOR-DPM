@@ -11,9 +11,6 @@ kernelspec:
   name: python3
 ---
 
-```{try_on_binder}
-```
-
 ```{code-cell} ipython3
 :load: myst_code_init.py
 :tags: [remove-cell]
@@ -108,7 +105,7 @@ lti = m.to_lti().with_(T=1, time_stepper=ImplicitEulerTimeStepper(100))
 interact(lti, lti.parameters.space(0.01, 1))
 ```
 
-If we can also visualize the solutions of a reduced model by passing a `visualizer` and a
+We can also visualize the solutions of a reduced model by passing a `visualizer` and a
 `transform` of the solution:
 
 ```{code-cell} ipython3

@@ -5,12 +5,13 @@
 import numpy as np
 
 from pymor.algorithms.greedy import WeakGreedySurrogate, weak_greedy
+from pymor.algorithms.ml.base_regressor import BaseRegressor
 from pymor.algorithms.ml.vkoga.kernels import GaussianKernel
-from pymor.core.base import BasicObject
 from pymor.core.defaults import defaults
+from pymor.core.exceptions import ExtensionError
 
 
-class VKOGARegressor(BasicObject):
+class VKOGARegressor(BaseRegressor):
     """Scikit-learn-style regressor using the :class:`VKOGASurrogate`.
 
     The regressor uses the :func:`~pymor.algorithms.greedy.weak_greedy` in its `fit`-method
@@ -28,6 +29,7 @@ class VKOGARegressor(BasicObject):
         interface and in particular a `__call__`-method for (vectorized) evaluation of the kernel
         and a `diag`-method for computing the diagonal of the kernel matrix are required.
         For convenience, a Gaussian kernel is provided in :mod:`pymor.algorithms.ml.vkoga.kernels`.
+        If `kernel=None` is passed, a Gaussian kernel will be initialized by default.
     criterion
         Selection criterion for the greedy algorithm. Possible values are `'fp'`, `'f'` and `'p'`.
     max_centers
@@ -38,10 +40,19 @@ class VKOGARegressor(BasicObject):
         Regularization parameter for the kernel interpolation.
     """
 
+    _params = ('kernel', 'criterion', 'max_centers', 'tol', 'reg')
+    _nested_object = 'kernel'
+
     @defaults('kernel', 'criterion', 'max_centers', 'tol', 'reg')
-    def __init__(self, kernel=GaussianKernel(), criterion='fp', max_centers=20, tol=1e-6, reg=1e-12):
-        self.__auto_init(locals())
-        self._surrogate = None
+    def __init__(self, kernel=None, criterion='fp', max_centers=20, tol=1e-6, reg=1e-12):
+        if kernel is None:
+            kernel = GaussianKernel()
+
+        self.kernel = kernel
+        self.criterion = criterion
+        self.max_centers = max_centers
+        self.tol = tol
+        self.reg = reg
 
     def fit(self, X, Y):
         """Fit VKOGA surrogate using pyMOR's weak greedy algorithm.
@@ -64,13 +75,40 @@ class VKOGARegressor(BasicObject):
         surrogate = VKOGASurrogate(kernel=self.kernel, X_train=X, F_train=Y, criterion=self.criterion, reg=self.reg)
 
         # use X as training set in the weak greedy algorithm
-        result = weak_greedy(surrogate, np.arange(len(X)), atol=self.tol, max_extensions=self.max_centers)
+        result = weak_greedy(surrogate, np.arange(len(X)), atol=self.tol, max_extensions=min(len(X), self.max_centers))
 
         self._surrogate = surrogate
         # store the results of the weak greedy algorithm for inspection/plotting
         self._weak_greedy_result = result
 
         return self
+
+    def extend(self, X, Y):
+        """Incrementally extend the VKOGA surrogate with new training data.
+
+        New data points are added to the surrogate's training set. A greedy
+        step is then performed to decide whether any of the new points should
+        be selected as centers.
+
+        Parameters
+        ----------
+        X
+            New training inputs.
+        Y
+            New training targets.
+        """
+        if self._surrogate is None:
+            raise RuntimeError('Call fit() before extend().')
+        X = np.asarray(X)
+        Y = np.asarray(Y)
+        self._surrogate.extend_training_data(X, Y)
+
+        # run greedy on the new points to decide if they should become centers
+        new_indices = np.arange(self._surrogate.N - len(X), self._surrogate.N)
+        n_existing = len(self._surrogate._centers) if self._surrogate._centers is not None else 0
+        remaining_centers = self.max_centers - n_existing
+        if remaining_centers > 0:
+            weak_greedy(self._surrogate, new_indices, atol=self.tol, max_extensions=remaining_centers)
 
     def predict(self, X):
         """Predict the target for the input `X`.
@@ -84,7 +122,7 @@ class VKOGARegressor(BasicObject):
         -------
         Prediction obtained by the :class:`VKOGASurrogate`.
         """
-        if self._surrogate is None:
+        if not hasattr(self, '_surrogate'):
             raise RuntimeError('Call fit() before predict().')
         return self._surrogate.predict(X)
 
@@ -101,7 +139,13 @@ class VKOGASurrogate(WeakGreedySurrogate):
         F_train = np.asarray(F_train)
         if F_train.ndim == 1:
             F_train = F_train.reshape((-1, 1))
-        self.__auto_init(locals())
+
+        self.kernel = kernel
+        self.X_train = X_train
+        self.F_train = F_train
+        self.criterion = criterion
+        self.reg = reg
+
         self.N, self.m = self.F_train.shape
         self.d = self.X_train.shape[1]
 
@@ -112,14 +156,58 @@ class VKOGASurrogate(WeakGreedySurrogate):
         self._K_X_mu = None
         self._V = None
         self._C = None
+        self.res = None
         # power2 = trace(k(x,x)) for each training point
         self._power2 = self.kernel.diag(self.X_train) + self.reg
 
-    def _find_training_indices(self, mus):
-        """Find nearest neighbors of mus within training data points."""
-        diff = self.X_train[None, :, :] - mus[:, None, :]
-        dists = np.linalg.norm(diff, axis=2)
-        return dists.argmin(axis=1)
+    def extend_training_data(self, X_new, F_new):
+        """Add new training points and update all internal quantities.
+
+        Parameters
+        ----------
+        X_new
+            New training inputs.
+        F_new
+            New training targets.
+        """
+        X_new = np.atleast_2d(X_new)
+        F_new = np.asarray(F_new)
+        if F_new.ndim == 1:
+            F_new = F_new.reshape((-1, 1))
+
+        n_new = X_new.shape[0]
+        assert X_new.shape[1] == self.d
+        assert F_new.shape[1] == self.m
+
+        # extend training data arrays
+        self.X_train = np.vstack([self.X_train, X_new])
+        self.F_train = np.vstack([self.F_train, F_new])
+        self.N += n_new
+
+        # extend power function evaluations for new points
+        new_power2 = self.kernel.diag(X_new) + self.reg
+
+        if self._V is not None:
+            n_bases = self._V.shape[1]
+            V_new = np.zeros((n_new, n_bases))
+            for j in range(n_bases):
+                center_idx = self._centers_idx[j]
+                K_new_center = self.kernel(X_new, self.X_train[center_idx:center_idx+1]).ravel()
+                V_new[:, j] = (K_new_center - V_new[:, :j] @ self._V[center_idx, :j]) / self._V[center_idx, j]
+                new_power2 -= V_new[:, j] ** 2
+            self._V = np.vstack([self._V, V_new])
+
+            # residual must match the state of old points: F - V[:, :-1] @ z[:-1]
+            new_res = F_new - V_new[:, :-1] @ self._z[:-1]
+            self.res = np.vstack([self.res, new_res])
+        else:
+            # no centers yet, residual is just the raw target values
+            if self.res is not None:
+                self.res = np.vstack([self.res, F_new])
+            else:
+                self.res = F_new
+
+        self._power2 = np.concatenate([self._power2, np.maximum(new_power2, 0)])
 
     def predict(self, X):
         X = np.asarray(X)
@@ -131,9 +219,9 @@ class VKOGASurrogate(WeakGreedySurrogate):
         return K @ coeff
 
     def evaluate(self, mus, return_all_values=False):
-        mus = np.asarray(self.X_train[mus])
-        idxs = self._find_training_indices(mus)
-        Xc = mus
+        mus = np.asarray(mus)
+        idxs = mus
+        Xc = self.X_train[idxs]
         p2 = self._power2[idxs]
 
         if self.criterion in ('fp', 'f'):
@@ -150,7 +238,7 @@ class VKOGASurrogate(WeakGreedySurrogate):
         if return_all_values:
             return scores
         idx = np.argmax(scores)
-        return scores[idx], mus[idx]
+        return scores[idx], Xc[idx]
 
     def extend(self, mu):
         r"""Extends the kernel interpolant by adding a new center and updating all quantities.
@@ -172,7 +260,7 @@ class VKOGASurrogate(WeakGreedySurrogate):
         Let :math:`K_n` denote the full kernel matrix for the current set of selected
         centers :math:`X_n`. Since :math:`K_n` is a kernel matrix, it is in particular
         positive-definite, so it has a Cholesky decomposition,
-        i.e. :math:`K_n=L_nL_n^\top`. The inverse of the Choleksy decomposition
+        i.e. :math:`K_n=L_nL_n^\top`. The inverse of the Cholesky decomposition
         :math:`C_n := L_{n}^{-1}` will be used to efficiently compute and update the
         coefficients  of the kernel interpolant. The formula for the computation and update of
         :math:`C_n` can be found below.
@@ -293,6 +381,12 @@ class VKOGASurrogate(WeakGreedySurrogate):
             idx_in_X = int(matches[0])
         else:
             idx_in_X = int(np.argmin(np.linalg.norm(self.X_train - mu, axis=1)))
+
+        if self._centers_idx is not None and idx_in_X in self._centers_idx:
+            raise ExtensionError('Center already selected.')
+
+        if self._power2[idx_in_X] <= 0 or np.isclose(self._power2[idx_in_X], 0):
+            raise ExtensionError('Power function value is zero for selected center.')
 
         # update the residual
         if self._V is None and self._z is None:

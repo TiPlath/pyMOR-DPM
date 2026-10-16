@@ -6,6 +6,7 @@ from pymor.algorithms.gram_schmidt import gram_schmidt
 from pymor.algorithms.rules import RuleTable, match_class, match_generic
 from pymor.core.exceptions import ImageCollectionError, NoMatchingRuleError
 from pymor.core.logger import getLogger
+from pymor.operators.block import BlockRowOperator
 from pymor.operators.constructions import ConcatenationOperator, LincombOperator, SelectionOperator
 from pymor.operators.ei import EmpiricalInterpolatedOperator
 from pymor.operators.interface import Operator
@@ -21,7 +22,7 @@ def estimate_image(operators=(), vectors=(),
     Let `operators` be a list of |Operators| with common source and range, and let
     `vectors` be a list of |VectorArrays| or vector-like |Operators| in the range
     of these operators. Given a |VectorArray| `domain` of vectors in the source of the
-    operators, this algorithms determines a |VectorArray| `image` of range vectors
+    operators, this algorithm determines a |VectorArray| `image` of range vectors
     such that the linear span of `image` contains:
 
     - `op.apply(U, mu=mu)` for all operators `op` in `operators`, for all possible |Parameters|
@@ -223,7 +224,9 @@ class CollectOperatorRangeRules(RuleTable):
 
     def __init__(self, source, image, extends):
         super().__init__(use_caching=True)
-        self.__auto_init(locals())
+        self.source = source
+        self.image = image
+        self.extends = extends
 
     @match_generic(lambda op: op.linear and not op.parametric)
     def action_apply_operator(self, op):
@@ -246,6 +249,11 @@ class CollectOperatorRangeRules(RuleTable):
             firstrange = op.operators[-1].range.empty()
             type(self)(self.source, firstrange, self.extends).apply(op.operators[-1])
             type(self)(firstrange, self.image, self.extends).apply(op.with_(operators=op.operators[:-1]))
+
+    @match_class(BlockRowOperator)
+    def action_BlockRowOperator(self, op):
+        for j, block in enumerate(op.blocks[0]):
+            type(self)(self.source.blocks[j], self.image, self.extends).apply(block)
 
 
 class CollectVectorRangeRules(RuleTable):

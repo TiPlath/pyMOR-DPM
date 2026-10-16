@@ -24,7 +24,7 @@ from importing the Slycot library.
 
 ```{envvar} PYMOR_DEFAULTS
 If empty or `NONE`, do not load any {mod}`~pymor.core.defaults`
-from file. Otherwise, a `:`-separated list of the paths to a
+from file. Otherwise, a `:`-separated list of the paths to
 Python scripts containing defaults.
 ```
 
@@ -53,4 +53,8 @@ is unset the value of `mpi4py.rc.finalize` remains unchanged, unless
 
 ```{envvar} PYMOR_MPI_INIT_THREAD
 Required threading level to require when pyMOR calls `mpi4py.MPI.Init_thread`.
+```
+
+```{envvar} PYMOR_PROGRESS_DISABLE
+If set, disable progress bars for long running operations.
 ```

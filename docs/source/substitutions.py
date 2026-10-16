@@ -155,8 +155,6 @@ common = """
 .. |NumPy| replace:: :mod:`NumPy <numpy>`
 .. |NumPy array| replace:: :class:`NumPy array <numpy.ndarray>`
 .. |NumPy arrays| replace:: :class:`NumPy arrays <numpy.ndarray>`
-.. |Numpy array| replace:: :class:`NumPy array <numpy.ndarray>`
-.. |Numpy arrays| replace:: :class:`NumPy arrays <numpy.ndarray>`
 .. |array| replace:: :class:`NumPy array <numpy.ndarray>`
 .. |Array| replace:: :class:`NumPy array <numpy.ndarray>`
 
@@ -181,7 +179,25 @@ common = """
 .. |SymplecticBasis| replace:: :class:`~pymor.algorithms.symplectic.SymplecticBasis`
 .. |CanonicalSymplecticFormOperator| replace:: :class:`~pymor.operators.symplectic.CanonicalSymplecticFormOperator`
 
+.. |LyapunovEquation| replace:: :class:`~pymor.solvers.matrix_equations.equations.LyapunovEquation`
+.. |LyapunovEquations| replace:: :class:`LyapunovEquations <pymor.solvers.matrix_equations.equations.LyapunovEquation>`
+.. |RiccatiEquation| replace:: :class:`~pymor.solvers.matrix_equations.equations.RiccatiEquation`
+.. |RiccatiEquations| replace:: :class:`RiccatiEquations <pymor.solvers.matrix_equations.equations.RiccatiEquation>`
+.. |PositiveRiccatiEquation| replace:: :class:`~pymor.solvers.matrix_equations.equations.PositiveRiccatiEquation`
+.. |PositiveRiccatiEquations| replace:: :class:`PositiveRiccatiEquations <pymor.solvers.matrix_equations.equations.PositiveRiccatiEquation>`
+.. |SylvesterEquation| replace:: :class:`~pymor.solvers.matrix_equations.equations.SylvesterEquation`
+.. |SylvesterEquations| replace:: :class:`SylvesterEquations <pymor.solvers.matrix_equations.equations.SylvesterEquation>`
+
+.. |LyapunovSolver| replace:: :class:`~pymor.solvers.matrix_equations.interface.LyapunovSolver`
+.. |LyapunovSolverLR| replace:: :class:`~pymor.solvers.matrix_equations.interface.LyapunovSolverLR`
+.. |RiccatiSolver| replace:: :class:`~pymor.solvers.matrix_equations.interface.RiccatiSolver`
+.. |RiccatiSolverLR| replace:: :class:`~pymor.solvers.matrix_equations.interface.RiccatiSolverLR`
+.. |PositiveRiccatiSolver| replace:: :class:`~pymor.solvers.matrix_equations.interface.PositiveRiccatiSolver`
+.. |PositiveRiccatiSolverLR| replace:: :class:`~pymor.solvers.matrix_equations.interface.PositiveRiccatiSolverLR`
+.. |SylvesterSolver| replace:: :class:`~pymor.solvers.matrix_equations.interface.SylvesterSolver`
+
 .. |RNG| replace:: :class:`random number generator <pymor.tools.random.RNG>`
+.. |RandomizedRangeFinder| replace:: :class:`randmomized range finder <pymor.algorithms.rand_la.RandomizedRangeFinder>`
 """  # noqa: E501
 
 substitutions = interfaces + common

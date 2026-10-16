@@ -22,9 +22,11 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Mathematics",
 ]
 dependencies = [
+  "cyclopts",
   "diskcache",
   "matplotlib>=3.5.0",
   "numpy>=1.21,!=1.25.0", # 1.25.0 crashes CI
@@ -34,7 +36,6 @@ dependencies = [
   "qtpy>=2.3.1",
   "scipy>=1.8,!=1.15.0,!=1.15.1,!=1.15.2",
   "threadpoolctl",
-  "typer",
 ]
 
 [project.optional-dependencies]
@@ -57,20 +58,17 @@ docs-additional = [
   "sphinx==7.3.7",
   "sphinxcontrib-bibtex",
 ]
-# additional dependencies for running tests via 'make tests'
-tests = [
-  "hypothesis[numpy,pytest]==6.56.3", # pin hypothesis version to ensure deterministic tests
-  "nbmake",
-  "pytest-cov",
-  "pytest-datadir",
-  "pytest>=7.2.1", # 7.2.0 causes format_source tests to fail do to wrong paths in co_filename
-]
 ci-conda = [
   "pyopengl!=3.1.7,!=3.1.9,!=3.1.10", # CI crashes
 ]
 # additional dependencies for pyMOR development
 dev = [
-  "ruff==0.13.3", # our linter of choice
+  "hypothesis[numpy,pytest]==6.56.3", # pin hypothesis version to ensure deterministic tests
+  "nbmake",
+  "pytest-cov",
+  "pytest-datadir",
+  "pytest>=7.2.1", # 7.2.0 causes format_source tests to fail due to wrong paths in co_filename
+  "ruff==0.15.20", # our linter of choice
   "conda_lock==2.5.7", # needed for make ci_conda_requirements
   "hatch", # build frontend for building and publishing pyMOR images
   "uv", # to build requirements files
@@ -97,7 +95,7 @@ mpi = [
 # ## Builtin discretizations
 # GUI support for builtin discretizations
 gui = [
-  "pyside6>=6.4.3",
+  "PyQt6",
   "pyopengl",
 ]
 # jupyter integration
@@ -106,7 +104,7 @@ jupyter = [
   "ipywidgets>7",
   "jupyterlab",
   "jupyterlab-myst",
-  "k3d>=2.15.2",
+  "k3d>=2.15.2,<3",
   "notebook",
 ]
 # VTK output for builtin discretizations
@@ -134,16 +132,17 @@ scikit-learn = [
 # # Meta dependencies
 # install all optional dependencies, except those requiring a compiler toolchain to build
 full = [
-  "pymor[docs_additional,tests,dev,ann,ipyparallel,gui,jupyter,vtk,gmsh,ngsolve,scikit-fem]",
+  "pymor[slycot,ann,ipyparallel,gui,jupyter,vtk,gmsh,scikit-fem]",
 ]
 # install all optional dependencies, including those requiring a compiler toolchain to build
 full-compiled = [
-  "pymor[full,slycot,mpi]",
+  "pymor[full,mpi]",
 ]
 
 [project.scripts]
-pymor-demo = "pymor.scripts.pymor_demo:run"
-pymor-vis = "pymor.scripts.pymor_vis:run"
+pymor-config = "pymor.scripts.pymor_config:app"
+pymor-demo = "pymor.scripts.pymor_demo:app.meta"
+pymor-vis = "pymor.scripts.pymor_vis:app"
 
 [project.urls]
 homepage = "https://pymor.org"

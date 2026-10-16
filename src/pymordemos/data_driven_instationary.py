@@ -3,9 +3,10 @@
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
 
 import time
+from typing import Literal
 
 import numpy as np
-from typer import Argument, Option, run
+from cyclopts import App
 
 from pymor.algorithms.ml.vkoga import GaussianKernel, VKOGARegressor
 from pymor.basic import *
@@ -13,26 +14,23 @@ from pymor.core.config import config
 from pymor.core.exceptions import SklearnMissingError, TorchMissingError
 from pymor.reductors.data_driven import DataDrivenPODReductor, DataDrivenReductor
 from pymor.tools import mpi
-from pymor.tools.typer import Choices
 
+app = App(help_on_error=True)
 
+@app.default
 def main(
-    problem_number: int = Argument(..., min=0, max=1, help='Selects the problem to solve [0 or 1].'),
-    regressor: Choices('fcnn vkoga gpr') = Argument(..., help="Regressor to use. Options are neural networks "
-                                                                   "using PyTorch, pyMOR's VKOGA algorithm or "
-                                                                   "Gaussian process regression using scikit-learn."),
-    grid_intervals: int = Argument(..., help='Grid interval count.'),
-    time_steps: int = Argument(..., help='Number of time steps used for discretization.'),
-    training_samples: int = Argument(..., help='Number of samples used for computing the reduced basis and '
-                                               'training the regressor.'),
-
-    fv: bool = Option(False, help='Use finite volume discretization instead of finite elements.'),
-    vis: bool = Option(False, help='Visualize full order solution and reduced solution for a test set.'),
-    validation_ratio: float = Option(0.1, help='Ratio of training data used for validation of the neural networks.'),
-    time_vectorized: bool = Option(False, help='Predict the whole time trajectory at once or iteratively.'),
-    input_scaling: bool = Option(False, help='Scale the input of the regressor (i.e. the parameter).'),
-    output_scaling: bool = Option(False, help='Scale the output of the regressor (i.e. reduced coefficients or output '
-                                              'quantity.'),
+    problem_number: Literal[0, 1],
+    regressor: Literal['fcnn', 'vkoga', 'gpr'],
+    grid_intervals: int,
+    time_steps: int,
+    training_samples: int,
+    /, *,
+    fv: bool = False,
+    vis: bool = False,
+    validation_ratio: float = 0.1,
+    time_vectorized: bool = False,
+    input_scaling: bool = False,
+    output_scaling: bool = False,
 ):
     """Model order reduction with machine learning methods for instationary problems.
 
@@ -43,28 +41,49 @@ def main(
     Problem number 1 considers a parametrized Burgers equation on a
     one-dimensional domain. The discretization is based on pyMOR's built-in
     functionality.
+
+    Parameters
+    ----------
+    problem_number
+        Selects the problem to solve [0 or 1].
+    regressor
+        Regressor to use. Options are neural networks using PyTorch,
+        pyMOR's VKOGA algorithm or Gaussian process regression using scikit-learn.
+    grid_intervals
+        Grid interval count.
+    time_steps
+        Number of time steps used for discretization.
+    training_samples
+        Number of samples used for computing the reduced basis and training the regressor.
+    fv
+        Use finite volume discretization instead of finite elements.
+    vis
+        Visualize full order solution and reduced solution for a test set.
+    validation_ratio
+        Ratio of training data used for validation of the neural networks.
+    time_vectorized
+        Predict the whole time trajectory at once or iteratively.
+    input_scaling
+        Scale the input of the regressor (i.e. the parameter).
+    output_scaling
+        Scale the output of the regressor (i.e. reduced coefficients or output quantity).
     """
     if regressor == 'fcnn' and not config.HAVE_TORCH:
         raise TorchMissingError
     elif (regressor == 'gpr' or input_scaling or output_scaling) and not config.HAVE_SKLEARN:
         raise SklearnMissingError
 
-    fom, plot_function = create_fom(problem_number, grid_intervals, time_steps)
+    assert problem_number in (0, 1), f'Unknown problem number {problem_number}'
 
-    if problem_number == 0:
-        parameter_space = fom.parameters.space(1., 50.)
-    else:
-        parameter_space = fom.parameters.space(1., 2.)
+    fom, plot_function, parameter_space = create_fom(problem_number, grid_intervals, time_steps)
 
     training_parameters = parameter_space.sample_uniformly(training_samples)
     test_parameters = parameter_space.sample_randomly(10)
 
     if regressor == 'fcnn':
-        from pymor.algorithms.ml.nn import FullyConnectedNN, NeuralNetworkRegressor
-        regressor_solution = NeuralNetworkRegressor(FullyConnectedNN(hidden_layers=[30, 30, 30]),
-                                                    validation_ratio=validation_ratio, tol=1e-4)
-        regressor_output = NeuralNetworkRegressor(FullyConnectedNN(hidden_layers=[30, 30, 30]),
-                                                  validation_ratio=validation_ratio, tol=1e-4)
+        from pymor.algorithms.ml.nn import NeuralNetworkRegressor
+        regressor_solution = NeuralNetworkRegressor(validation_ratio=validation_ratio, tol=1e-4)
+        regressor_output = NeuralNetworkRegressor(validation_ratio=validation_ratio, tol=1e-4)
     elif regressor == 'vkoga':
         kernel = GaussianKernel(length_scale=1.0)
         regressor_solution = VKOGARegressor(kernel=kernel, criterion='fp', max_centers=30, tol=1e-6, reg=1e-12)
@@ -100,6 +119,7 @@ def main(
     reductor_data_driven = DataDrivenPODReductor(training_parameters, training_snapshots,
                                                  regressor=regressor_solution, T=fom.T,
                                                  time_vectorized=time_vectorized,
+                                                 output_functional=fom.output_functional,
                                                  input_scaler=input_scaler_solution,
                                                  output_scaler=output_scaler_solution,
                                                  pod_params={'l2_err': 1e-5})
@@ -175,7 +195,8 @@ def create_fom(problem_number, grid_intervals, time_steps):
     if problem_number == 0:
         config.require('FENICS')
         fom, plot_function = discretize_navier_stokes(grid_intervals, time_steps)
-    elif problem_number == 1:
+        parameter_space = fom.parameters.space(1., 50.)
+    else:
         problem = burgers_problem()
         f = LincombFunction(
             [ExpressionFunction('1.', 1), ConstantFunction(1., 1)],
@@ -184,10 +205,9 @@ def create_fom(problem_number, grid_intervals, time_steps):
 
         fom, _ = discretize_instationary_fv(problem, diameter=1. / grid_intervals, nt=time_steps)
         plot_function = fom.visualize
-    else:
-        raise ValueError(f'Unknown problem number {problem_number}')
+        parameter_space = fom.parameters.space(1., 2.)
 
-    return fom, plot_function
+    return fom, plot_function, parameter_space
 
 
 def discretize_navier_stokes(n, nt):
@@ -317,4 +337,4 @@ def _discretize_navier_stokes(n, nt):
 
 
 if __name__ == '__main__':
-    run(main)
+    app()

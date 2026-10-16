@@ -35,7 +35,7 @@ class DataDrivenModel(Model):
     output_scaler
         If not `None`, a scaler object with `fit`, `transform` and
         `inverse_transform` methods similar to the scikit-learn interface can be
-        used to scale the outputs (reduced coeffcients or output quantities)
+        used to scale the outputs (reduced coefficients or output quantities)
         before passing them to the regressor.
     output_functional
         |Operator| mapping a given solution to the model output. In many applications,
@@ -70,7 +70,14 @@ class DataDrivenModel(Model):
 
         assert target_quantity == 'solution' or output_functional is None
 
-        self.__auto_init(locals())
+        self.regressor = regressor
+        self.target_quantity = target_quantity
+        self.parameters = parameters
+        self.dim_solution_space = dim_solution_space
+        self.input_scaler = input_scaler
+        self.output_scaler = output_scaler
+        self.output_functional = output_functional
+
         if self.target_quantity == 'solution':
             assert self.dim_solution_space
             self.solution_space = NumpyVectorSpace(self.dim_solution_space)
@@ -102,9 +109,9 @@ class DataDrivenModel(Model):
 
 
 class DataDrivenInstationaryModel(DataDrivenModel):
-    """Class for models of stationary problems that use regressors for prediction.
+    """Class for models of instationary problems that use regressors for prediction.
 
-    This class implements a |Model| that uses an regressor for solution
+    This class implements a |Model| that uses a regressor for solution
     or output approximation.
 
     Parameters
@@ -131,7 +138,7 @@ class DataDrivenInstationaryModel(DataDrivenModel):
     output_scaler
         If not `None`, a scaler object with `fit`, `transform` and
         `inverse_transform` methods similar to the scikit-learn interface can be
-        used to scale the outputs (reduced coeffcients or output quantities)
+        used to scale the outputs (reduced coefficients or output quantities)
         before passing them to the regressor.
     time_vectorized
         In the instationary case, determines whether to predict the whole time
@@ -171,8 +178,9 @@ class DataDrivenInstationaryModel(DataDrivenModel):
                          dim_solution_space=dim_solution_space, input_scaler=input_scaler, output_scaler=output_scaler,
                          output_functional=output_functional, products=products, error_estimator=error_estimator,
                          visualizer=visualizer, name=name)
-
-        self.__auto_init(locals())
+        self.T = T
+        self.nt = nt
+        self.time_vectorized = time_vectorized
 
     def _perform_prediction(self, mu):
         """Performs the prediction with correct scaling."""
@@ -182,11 +190,17 @@ class DataDrivenInstationaryModel(DataDrivenModel):
             if self.input_scaler is not None:
                 inputs = self.input_scaler.transform(inputs)
         else:
-            if self.input_scaler is not None:
-                inputs = np.array([self.input_scaler.transform(np.atleast_2d(mu.at_time(t).to_numpy())).flatten()
-                                   for t in np.linspace(0., self.T, self.nt)])
+            if not mu.has_time_dependent_values:
+                times = np.linspace(0., self.T, self.nt)
+                # build inputs matching the column order of mu.at_time(t).to_numpy()
+                keys = sorted(list(mu.keys()) + ['t'])
+                columns = {k: np.tile(mu[k], self.nt) for k in mu}
+                columns['t'] = times
+                inputs = np.column_stack([columns[k] for k in keys])
             else:
                 inputs = np.array([mu.at_time(t).to_numpy() for t in np.linspace(0., self.T, self.nt)])
+            if self.input_scaler is not None:
+                inputs = self.input_scaler.transform(inputs)
         # pass batch of inputs to regressor
         U = self.regressor.predict(inputs)
         if self.output_scaler is not None:
@@ -194,3 +208,44 @@ class DataDrivenInstationaryModel(DataDrivenModel):
         if self.time_vectorized:
             U = U.reshape((self.nt, -1))
         return U.T
+
+
+class ModelOfDataDrivenModels(Model):
+    """Model combining several sub-models into a single stacked solution.
+
+    The solutions of the sub-models are stacked into a single solution vector whose
+    space is the direct sum of the sub-model solution spaces. Used by
+    :class:`~pymor.reductors.data_driven.AdaptiveDataDrivenReductor` to combine the data-driven
+    surrogates for the individual blocks of reduced basis coefficients into one model.
+
+    Parameters
+    ----------
+    models
+        Sequence of :class:`~pymor.models.data_driven.DataDrivenModel` sub-models
+        with :class:`~pymor.vectorarrays.numpy.NumpyVectorSpace` solution spaces.
+    output_functional
+        |Operator| mapping the stacked solution to the model output.
+    error_estimator
+        Error estimator operating on the stacked solution (e.g. the error estimator of
+        the reduced basis model whose coefficients are approximated).
+    """
+
+    def __init__(self, models, output_functional=None, error_estimator=None):
+        assert all(isinstance(m.solution_space, NumpyVectorSpace) for m in models)
+        assert all(isinstance(m, DataDrivenModel) for m in models)
+        super().__init__(error_estimator=error_estimator)
+        self.models = models
+        self.output_functional = output_functional
+
+        self.solution_space = NumpyVectorSpace(sum(m.solution_space.dim for m in models))
+
+    def _compute(self, quantities, data, mu):
+        if 'solution' in quantities:
+            if self.models:
+                solution_np = np.vstack([m.solve(mu).to_numpy() for m in self.models])
+                data['solution'] = self.solution_space.make_array(solution_np)
+            else:
+                data['solution'] = self.solution_space.empty()
+            quantities.remove('solution')
+
+        super()._compute(quantities, data, mu=mu)

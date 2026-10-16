@@ -101,7 +101,7 @@ class VectorArrayPlot(K3DPlot):
         if warp and show_mesh:
             line_vertices = np.hstack([coordinates.astype(np.float32),
                                        np.zeros((len(coordinates), 1), dtype=np.float32)])
-            line_indices = np.array(subentities, dtype=np.float32)  # indices trait is float32
+            line_indices = np.array(subentities, dtype=np.uint32)
             line_indices = np.repeat(line_indices, 2, axis=1)[:,1:]
             line_indices = np.hstack([line_indices, line_indices[:,0:1]]).ravel()
             self.lines = k3d.lines(vertices=line_vertices,
@@ -185,7 +185,7 @@ def visualize_k3d(grid, U, bounding_box=None, codim=2, title=None, legend=None,
     grid
         The underlying |Grid|.
     U
-        |VectorArray| of the data to visualize. If `len(U) 1`, the data is visualized
+        |VectorArray| of the data to visualize. If `len(U) > 1`, the data is visualized
         as a time series of plots. Alternatively, a tuple of |VectorArrays| can be
         provided, in which case a subplot is created for each entry of the tuple. The
         lengths of all arrays have to agree.

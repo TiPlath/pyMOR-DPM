@@ -11,9 +11,6 @@ kernelspec:
   name: python3
 ---
 
-```{try_on_binder}
-```
-
 ```{code-cell} ipython3
 :load: myst_code_init.py
 :tags: [remove-cell]
@@ -90,7 +87,7 @@ port-Hamiltonian structure, i.e., to compute a ROM that is also port-Hamiltonian
 
 If desired, a passive {{ LTIModel }} can be converted into a {{ PHLTIModel }} using
 the {meth}`~pymor.models.iosys.PHLTIModel.from_passive_LTIModel` method.
-Consequentely, one option to preserve port-Hamiltonian structure is to use a reductor
+Consequently, one option to preserve port-Hamiltonian structure is to use a reductor
 that preserves passivity (but returns a ROM of type {{ LTIModel }}) and convert the
 ROM into a {{ PHLTIModel }} in a post-processing step.
 
@@ -154,16 +151,8 @@ fom = msd_example(50, 2)
 S = fom.S.matrix.copy()
 S += np.eye(S.shape[0]) * 1e-12
 
-fom = fom.with_(S=fom.S.with_(matrix=S),
-                solver_options={'ricc_pos_lrcf': 'slycot'})
+fom = fom.with_(S=fom.S.with_(matrix=S))
 ```
-
-The `ricc_pos_lrcf` solver option refers to the solver used for the underlying
-Riccati equation relevant for {class}`~pymor.reductors.bt.PRBTReductor` and
-{class}`~pymor.reductors.spectral_factor.SpectralFactorReductor`. Possible choices are
-`scipy` or `slycot` (if installed). Currently, we recommend `slycot`, since `scipy`
-gets into trouble if the associated Hamiltonian pencil has eigenvalues close to the
-imaginary axis.
 
 ### pH-IRKA
 
@@ -196,7 +185,6 @@ from pymor.reductors.bt import PRBTReductor
 
 reductor = PRBTReductor(fom)
 rom2 = reductor.reduce(10)
-rom2 = rom2.with_(solver_options={'ricc_pos_lrcf': 'slycot'})
 rom2 = PHLTIModel.from_passive_LTIModel(rom2)
 print(f'rom2 is of type {type(rom2).__qualname__}.')
 ```
@@ -206,7 +194,7 @@ print(f'rom2 is of type {type(rom2).__qualname__}.')
 The {class}`~pymor.reductors.spectral_factor.SpectralFactorReductor` method
 is a wrapper reductor for another generic reductor. The method extracts a
 spectral factor from the FOM (this is only possible if the system is passive),
-which subsequentely is reduced by a reductor specified by the user.
+which subsequently is reduced by a reductor specified by the user.
 A spectral factor is a standard {{ LTIModel }}, and hence any LTI reduction can be used.
 For our example, we use the {class}`~pymor.reductors.h2.IRKAReductor` as the inner reductor.
 If the inner reductor returns a stable ROM, passivity is preserved.
@@ -224,7 +212,6 @@ reductor = SpectralFactorReductor(fom)
 rom3 = reductor.reduce(
     lambda spectral_factor, mu : IRKAReductor(spectral_factor, mu).reduce(10)
 )
-rom3 = rom3.with_(solver_options={'ricc_pos_lrcf': 'slycot'})
 rom3 = PHLTIModel.from_passive_LTIModel(rom3)
 print(f'rom3 is of type {type(rom3).__qualname__}.')
 ```

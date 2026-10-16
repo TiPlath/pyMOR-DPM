@@ -39,12 +39,18 @@ class CoerciveRBReductor(StationaryRBReductor):
         constant of the given problem. Note that the computed error estimate is only
         guaranteed to be an upper bound for the error when an appropriate coercivity
         estimate is specified.
+    check_orthonormality
+        See :class:`~pymor.reductors.basic.ProjectionBasedReductor`.
+    check_tol
+        See :class:`~pymor.reductors.basic.ProjectionBasedReductor`.
+    extension_params
+        See :class:`~pymor.reductors.basic.ProjectionBasedReductor`.
     """
 
     def __init__(self, fom, RB=None, product=None, coercivity_estimator=None,
-                 check_orthonormality=None, check_tol=None):
+                 check_orthonormality=None, check_tol=None, extension_params=None):
         super().__init__(fom, RB, product=product, check_orthonormality=check_orthonormality,
-                         check_tol=check_tol)
+                         check_tol=check_tol, extension_params=extension_params)
         self.coercivity_estimator = coercivity_estimator
         self.residual_reductor = ResidualReductor(self.bases['RB'], self.fom.operator, self.fom.rhs,
                                                   product=product, riesz_representatives=True)
@@ -75,7 +81,10 @@ class CoerciveRBEstimator(ImmutableObject):
     """
 
     def __init__(self, residual, residual_range_dims, coercivity_estimator, projected_output_adjoint=None):
-        self.__auto_init(locals())
+        self.residual = residual
+        self.residual_range_dims = residual_range_dims
+        self.coercivity_estimator = coercivity_estimator
+        self.projected_output_adjoint = projected_output_adjoint
 
     def estimate_error(self, U, mu, m):
         est = self.residual.apply(U, mu=mu).norm()
@@ -130,10 +139,16 @@ class SimpleCoerciveRBReductor(StationaryRBReductor):
         constant of the given problem. Note that the computed error estimate is only
         guaranteed to be an upper bound for the error when an appropriate coercivity
         estimate is specified.
+    check_orthonormality
+        See :class:`~pymor.reductors.basic.ProjectionBasedReductor`.
+    check_tol
+        See :class:`~pymor.reductors.basic.ProjectionBasedReductor`.
+    extension_params
+        See :class:`~pymor.reductors.basic.ProjectionBasedReductor`.
     """
 
     def __init__(self, fom, RB=None, product=None, coercivity_estimator=None,
-                 check_orthonormality=None, check_tol=None):
+                 check_orthonormality=None, check_tol=None, extension_params=None):
         assert fom.operator.linear
         assert fom.rhs.linear
         assert isinstance(fom.operator, LincombOperator)
@@ -143,7 +158,7 @@ class SimpleCoerciveRBReductor(StationaryRBReductor):
             assert all(not op.parametric for op in fom.rhs.operators)
 
         super().__init__(fom, RB, product=product, check_orthonormality=check_orthonormality,
-                         check_tol=check_tol)
+                         check_tol=check_tol, extension_params=extension_params)
         self.coercivity_estimator = coercivity_estimator
         self.extends = None
 
@@ -259,7 +274,11 @@ class SimpleCoerciveRBEstimator(ImmutableObject):
     """
 
     def __init__(self, estimator_matrix, coercivity_estimator, output_estimator_matrices, output_functional_coeffs):
-        self.__auto_init(locals())
+        self.estimator_matrix = estimator_matrix
+        self.coercivity_estimator = coercivity_estimator
+        self.output_estimator_matrices = output_estimator_matrices
+        self.output_functional_coeffs = output_functional_coeffs
+
         self.norm = induced_norm(estimator_matrix)
 
     def estimate_error(self, U, mu, m):

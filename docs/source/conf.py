@@ -135,10 +135,12 @@ nitpick_ignore = [
     ('py:obj', 'qtpy.QtWidgets.QOpenGLWidget'),
     ('py:obj', 'qtpy.QtWidgets.QWidget'),
     ('py:class', 'F'),
+    ('py:class', 'P'),
+    ('py:class', 'R'),
 ]
 nitpick_ignore_regex = [
-    ('py:class', 'Choices(.+)'),  # pymor.tools.typer.Choices(...) cannot be referred to
     ('py:.*', 'matplotlib.backends.*'),  # matplotlib backends are not auto documented
+    ('py:class', r'Annotated\[.*')
 ]
 
 
@@ -287,7 +289,8 @@ intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'PyQt5': ('https://www.riverbankcomputing.com/static/Docs/PyQt5', None),
-    'scipy': ('https://docs.scipy.org/doc/scipy/', None),
+    'scipy': ('https://docs.scipy.org/doc/scipy/',
+              ('https://docs.pymor.org/intersphinx_mirror/scipy_objects.inv', None)),
     'matplotlib': ('https://matplotlib.org/stable/', None),
     'Sphinx': (' https://www.sphinx-doc.org/en/stable/', None),
     'torch': ('https://pytorch.org/docs/stable/', None),
@@ -316,11 +319,10 @@ def linkcode_resolve(domain, info):
     return None
 
 
-autoapi_dirs = [src_dir / 'pymor', src_dir / 'pymordemos']
+autoapi_dirs = [src_dir / 'pymor']
 autoapi_type = 'python'
 # allows incremental build
 autoapi_keep_files = True
-autoapi_ignore = ['*/pymordemos/minimal_cpp_demo/*']
 suppress_warnings = ['autoapi', 'config.cache']
 autoapi_template_dir = this_dir / '_templates' / 'autoapi'
 autoapi_member_order = 'groupwise'

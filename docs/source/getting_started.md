@@ -17,9 +17,6 @@ kernelspec:
   name: python3
 ---
 
-```{try_on_binder}
-```
-
 ```{code-cell}
 :tags: [remove-cell]
 :load: myst_code_init.py
@@ -140,7 +137,7 @@ reductor = CoerciveRBReductor(
 We use here {class}`~pymor.reductors.coercive.CoerciveRBReductor`, which
 also assembles an a posterior error estimator for the error w.r.t. the
 $H^1_0$-seminorm.
-For that estimator, an parameter-dependent lower bound for the coercivity constant
+For that estimator, a parameter-dependent lower bound for the coercivity constant
 of the problem is provided as an {class}`~pymor.parameters.functionals.ExpressionParameterFunctional`.
 
 Using this reductor and its error estimator, we can build a reduced space with corresponding
@@ -259,10 +256,10 @@ parameters or problems.
 All demos can be found in the [src/pymordemos](https://github.com/pymor/pymor/tree/main/src/pymordemos)
 directory of the source repository.
 
-The demo scripts can be launched directly from the source tree:
+The demo scripts can be run directly from the source tree:
 
 ```
-./thermalblock.py --plot-err --plot-solutions 3 2 3 32
+python3 ./thermalblock.py --plot-err --plot-solutions 3 2 3 32
 ```
 
 or by using the `pymor-demo` script that is installed with pyMOR:

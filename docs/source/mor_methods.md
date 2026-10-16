@@ -11,9 +11,6 @@ kernelspec:
   name: python3
 ---
 
-```{try_on_binder}
-```
-
 ```{code-cell} ipython3
 :load: myst_code_init.py
 :tags: [remove-cell]
@@ -23,7 +20,7 @@ kernelspec:
 
 # Available MOR methods
 
-Here we give an overview over (most of) the available MOR methods implemented in pyMOR.
+Here we give an overview of (most of) the available MOR methods implemented in pyMOR.
 We provide short code snippets that show how to use these methods with pyMOR.
 For more in-depth explanations we refer to the {doc}`tutorials`.
 
@@ -85,7 +82,7 @@ reductor = CoerciveRBReductor(
 )
 
 # note: use SimpleCoerciveRBReductor for faster offline phase but error estimator that
-# only is accurate up to half machine precision
+# is only accurate up to half machine precision
 
 # use weak greedy algorithm to train the model
 from pymor.algorithms.greedy import rb_greedy
@@ -280,10 +277,11 @@ fom = penzl_example()
 s = np.logspace(1, 3, 100) * 1j
 
 from pymor.reductors.aaa import PAAAReductor
-rom_aaa = PAAAReductor(s, fom).reduce()
+samples = PAAAReductor.generate_samples(s, fom)
+rom_aaa = PAAAReductor(s, samples).reduce()
 
 from pymor.reductors.loewner import LoewnerReductor
-rom_loewner = LoewnerReductor(s, fom).reduce()
+rom_loewner = LoewnerReductor(s, samples).reduce()
 ```
 
 Download the code:

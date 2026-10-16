@@ -4,7 +4,7 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-from typer import Argument, run
+from cyclopts import App
 
 from pymor.core.logger import set_log_levels
 from pymor.models.examples import heat_equation_non_parametric_example
@@ -34,7 +34,8 @@ def run_mor_method_dd(fom, ss, reductor_cls, reductor_short_name, reductor_kwarg
     reduce_kwargs
         Optional keyword arguments for the reduce method.
     """
-    rom = reductor_cls(ss * 1j, fom, **reductor_kwargs).reduce(*reduce_args, **reduce_kwargs)
+    samples = reductor_cls.generate_samples(ss * 1j, fom)
+    rom = reductor_cls(ss * 1j, samples, **reductor_kwargs).reduce(*reduce_args, **reduce_kwargs)
     err = fom - rom
 
     n_w = 50
@@ -52,11 +53,22 @@ def run_mor_method_dd(fom, ss, reductor_cls, reductor_short_name, reductor_kwarg
     ax.legend()
 
 
+app = App(help_on_error=True)
+
+@app.default
 def main(
-        diameter: float = Argument(0.1, help='Diameter option for the domain discretizer.'),
-        n: int = Argument(50, help='Number of frequency samples.')
+        diameter: float = 0.1,
+        n: int = 50,
 ):
-    """1D heat equation example."""
+    """1D heat equation example.
+
+    Parameters
+    ----------
+    diameter
+        Diameter option for the domain discretizer.
+    n
+        Number of frequency samples.
+    """
     set_log_levels({'pymor.algorithms.gram_schmidt.gram_schmidt': 'WARNING'})
 
     fom = heat_equation_non_parametric_example(diameter=diameter)
@@ -72,4 +84,4 @@ def main(
 
 
 if __name__ == '__main__':
-    run(main)
+    app()

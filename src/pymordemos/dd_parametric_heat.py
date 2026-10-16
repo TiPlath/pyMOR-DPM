@@ -6,7 +6,7 @@ import matplotlib.colors as cm
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg as spla
-from typer import Argument, run
+from cyclopts import App
 
 from pymor.core.logger import set_log_levels
 from pymor.models.examples import heat_equation_1d_example
@@ -32,7 +32,10 @@ def run_mor_method_dd_param(fom, ss, pp, reductor_cls, reductor_short_name, **re
         Optional keyword arguments for the reductor class.
     """
     # Reduction
-    rom = reductor_cls([ss * 1j, pp], fom, **reductor_kwargs).reduce()
+    sampling_values = [ss * 1j, pp]
+    samples = reductor_cls.generate_samples(sampling_values, fom)
+    reductor_kwargs.setdefault('parameters', fom.parameters)
+    rom = reductor_cls(sampling_values, samples, **reductor_kwargs).reduce()
     err = fom - rom
 
     n_w = 50
@@ -68,12 +71,25 @@ def run_mor_method_dd_param(fom, ss, pp, reductor_cls, reductor_short_name, **re
     plt.show()
 
 
+app = App(help_on_error=True)
+
+@app.default
 def main(
-        diameter: float = Argument(0.01, help='Diameter option for the domain discretizer.'),
-        n: int = Argument(50, help='Number of frequency samples.'),
-        m: int = Argument(10, help='Number of parameter samples.'),
+    diameter: float = 0.01,
+    n: int = 50,
+    m: int = 10
 ):
-    """Parametric 1D heat equation example."""
+    """Parametric 1D heat equation example.
+
+    Parameters
+    ----------
+    diameter
+        Diameter option for the domain discretizer.
+    n
+        Number of frequency samples.
+    m
+        Number of parameter samples.
+    """
     set_log_levels({'pymor.algorithms.gram_schmidt.gram_schmidt': 'WARNING'})
 
     # Model
@@ -88,4 +104,4 @@ def main(
 
 
 if __name__ == '__main__':
-    run(main)
+    app()

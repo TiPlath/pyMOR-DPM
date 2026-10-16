@@ -4,19 +4,27 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-from typer import Argument, run
+from cyclopts import App
 
 from pymor.core.logger import set_log_levels
 from pymor.models.transfer_function import TransferFunction
 from pymor.reductors.h2 import TFIRKAReductor
 from pymordemos.parametric_heat import fom_properties_param, run_mor_method_param
 
+app = App(help_on_error=True)
 
-def main(r: int = Argument(10, help='Order of the TF-IRKA ROM.')):
-    """Parametric delay demo."""
+@app.default
+def main(r: int = 10):
+    """Parametric delay demo.
+
+    Parameters
+    ----------
+    r
+        Order of the TF-IRKA ROM.
+    """
     set_log_levels({
         'pymor.algorithms.gram_schmidt.gram_schmidt': 'WARNING',
-        'pymor.algorithms.lradi.solve_lyap_lrcf': 'WARNING',
+        'pymor.solvers.matrix_equations.adi.ADILyapunovSolver': 'WARNING',
         'pymor.reductors.basic.LTIPGReductor': 'WARNING',
     })
     plt.rcParams['axes.grid'] = True
@@ -43,4 +51,4 @@ def main(r: int = Argument(10, help='Order of the TF-IRKA ROM.')):
 
 
 if __name__ == '__main__':
-    run(main)
+    app()

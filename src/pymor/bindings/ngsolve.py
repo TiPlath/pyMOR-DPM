@@ -4,6 +4,7 @@
 from pathlib import Path
 
 from pymor.core.config import config
+from pymor.core.exceptions import LinAlgError
 
 config.require('NGSOLVE')
 
@@ -79,7 +80,7 @@ class NGSolveVectorSpace(ComplexifiedListVectorSpace):
     vector_type = ComplexifiedNGSolveVector
 
     def __init__(self, V):
-        self.__auto_init(locals())
+        self.V = V
 
     def __eq__(self, other):
         return type(other) is NGSolveVectorSpace and self.V == other.V
@@ -120,7 +121,7 @@ class NGSolveLinearSolver(ComplexifiedListVectorArrayBasedSolver):
 
     @defaults('method')
     def __init__(self, method=''):
-        self.__auto_init(locals())
+        self.method = method
 
     def _prepare(self, operator, U, mu, adjoint):
         operator = operator.assemble(mu)
@@ -143,7 +144,12 @@ class NGSolveMatrixOperator(LinearComplexifiedListVectorArrayOperatorBase):
 
     def __init__(self, matrix, range, source, solver=None, name=None):
         solver = solver or NGSolveLinearSolver()
-        self.__auto_init(locals())
+
+        self.matrix = matrix
+        self.range = range
+        self.source = source
+        self.solver = solver
+        self.name = name
 
     def _real_apply_one_vector(self, u, mu=None, prepare_data=None):
         r = self.range.real_zero_vector()
@@ -168,7 +174,10 @@ class NGSolveMatrixOperator(LinearComplexifiedListVectorArrayOperatorBase):
         matrix = operators[0].matrix.CreateMatrix()
         matrix.AsVector().data = float(coefficients[0]) * matrix.AsVector()
         for op, c in zip(operators[1:], coefficients[1:], strict=True):
-            matrix.AsVector().data += float(c) * op.matrix.AsVector()
+            try:
+                matrix.AsVector().data += float(c) * op.matrix.AsVector()
+            except Exception as e:
+                raise LinAlgError(f'Linear combination failed with error "{e}". Different sparsity pattern?') from e
         return NGSolveMatrixOperator(matrix, self.range, self.source, name=name)
 
     def as_vector(self, copy=True):
@@ -180,7 +189,9 @@ class NGSolveVisualizer(ImmutableObject):
     """Visualize an NGSolve grid function."""
 
     def __init__(self, mesh, fespace):
-        self.__auto_init(locals())
+        self.mesh = mesh
+        self.fespace = fespace
+
         self.space = NGSolveVectorSpace(fespace)
 
     def visualize(self, U, legend=None, separate_colorbars=True, filename=None, block=True):

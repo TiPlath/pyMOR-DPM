@@ -2,7 +2,7 @@
 
 ## Main developers
 
-* Linus Balicki, @lbalicki (2020-)
+* Linus Balicki, @lbalicki (2020-2026)
 * René Fritze, @renefritze (2012-2024)
 * Hendrik Kleikamp, @HenKlei (2022-)
 * Petar Mlinarić, @pmli (2016-)
@@ -10,6 +10,31 @@
 * Felix Schindler, @ftschindler (2012-)
 
 ## Contributors
+
+### pyMOR 2026.1
+
+* Maximilian Bindhak, @maxbindhak
+  * unification and improvements of the QR tests
+  * improvements of the `shifted_chol_qr`
+
+* Nicholas Lüer, @NLITM
+  * fix of `ScipySpSolveSolver` factorization cache being defeated by matrix identity churn
+
+* Art Pelling, @artpelling
+  * improvements to the `rand_la` module
+  * `RandomizedERAReductor`
+
+* Timo Plath, @TiPlath
+  * implementation of a principal component analysis
+
+* Johannes Rettberg, @JohannesRettberg
+  * fix of the slycot version check
+
+* Sven Ullmann, @ullmannsven
+  * fixed boundary handling bug for some domains
+  * energy-stable Petrov-Galerkin projection in the `PGLTIPHReductor`
+  * matrix equation solver classes
+  * renaming of low-rank Cholesky factor (LRCF) to low-rank (LR)
 
 ### pyMOR 2025.2
 
